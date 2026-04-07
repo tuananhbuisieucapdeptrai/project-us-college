@@ -304,6 +304,10 @@ const HelixResponse = ({ analysis, recommendation, onReset })=>{
           })}
         </div>
       </div>
+      <div className='helix-recommend-header'>
+        <p className='helix-recommend-kicker'>Recommended Schools</p>
+        <h3 className='helix-recommend-title'>A curated set of colleges aligned with your profile.</h3>
+      </div>
       <div className='helix-recommend-grid'>
         {schools.map((school) => (
           <article key={school.id} className='helix-school-card'>
