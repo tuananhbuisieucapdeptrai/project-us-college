@@ -1,8 +1,8 @@
-import { useState,useEffect } from 'react';
+import { useState,useEffect, useRef } from 'react';
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL //|| 'http://localhost:3001';
-const baseUrl = `${API_BASE_URL}colleges/recommend`;
+const API_BASE_URL = import.meta.env.API_BASE_URL || 'http://localhost:3001/';
+const baseUrl = new URL('colleges/recommend', API_BASE_URL).toString();
 
 const analysisSections = [
   ['strengths', 'Key Strengths'],
@@ -41,96 +41,214 @@ const formatSize = (size) => {
   return value.toLocaleString();
 };
 
-const HelixRequest = ({ handleSubmit, name, setName, sat, setSat, gpa, setGpa, budget, setBudget, awards, setAwards, activities, setActivities, preferences, setPreferences }) => {
-  return(
-  <form className= "container-form"onSubmit={handleSubmit}>
-  <div >
-    <input
-      className="form-name"
-      type="text"
-      id="name"
-      value={name}
-      onChange={(e) => setName(e.target.value)}
-      placeholder="Tell us your name <3"
-    />
-  </div>
+const HelixRequest = ({ submitProfile, name, setName, sat, setSat, gpa, setGpa, budget, setBudget, awards, setAwards, activities, setActivities, preferences, setPreferences }) => {
+  const [started, setStarted] = useState(false);
+  const [step, setStep] = useState(0);
+  const [currentInput, setCurrentInput] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const threadRef = useRef(null);
 
-  {/* SAT Score */}
-  <div>
-    <input
-      className="form-sat"
-      type = "text"
-      id="sat"
-      value={sat}
-      onChange={(e) => setSat(e.target.value)}
-      placeholder="How well did you perform on the SAT?"
-    />
-  </div>
+  const prompts = [
+    {
+      key: 'name',
+      label: 'Your name',
+      question: "Hello, this is Helix, your AI admissions assistant. Before I help you, let's first get to know you. What is your name?",
+      followUp: (value) => `Hi ${value}, glad you're here. What is your SAT score?`,
+      type: 'text',
+      value: name,
+      setValue: setName,
+      placeholder: 'Type your name',
+    },
+    {
+      key: 'sat',
+      label: 'SAT score',
+      question: '',
+      followUp: () => 'What about your budget? Share your annual budget so I can factor affordability into your list.',
+      type: 'text',
+      value: sat,
+      setValue: setSat,
+      placeholder: 'e.g. 1450',
+    },
+    {
+      key: 'budget',
+      label: 'Annual budget',
+      question: '',
+      followUp: () => 'Great. And what is your GPA?',
+      type: 'text',
+      value: budget,
+      setValue: setBudget,
+      placeholder: 'e.g. 30000',
+    },
+    {
+      key: 'gpa',
+      label: 'GPA',
+      question: '',
+      followUp: () => 'Do you have any academic awards, honors, or recognitions?',
+      type: 'text',
+      value: gpa,
+      setValue: setGpa,
+      placeholder: 'e.g. 3.9',
+    },
+    {
+      key: 'awards',
+      label: 'Awards',
+      question: '',
+      followUp: () => 'Now let me know your story, do you have any activities, leadership, sports, volunteering, or other commitments you would like to share?',
+      type: 'textarea',
+      value: awards,
+      setValue: setAwards,
+      placeholder: 'Examples: National Merit Scholar, AP Scholar with Distinction...',
+    },
+    {
+      key: 'activities',
+      label: 'Activities',
+      question: '',
+      followUp: () => 'Last one: what are your preferences? Intended major, school size, campus culture, or anything else that matters to you.',
+      type: 'textarea',
+      value: activities,
+      setValue: setActivities,
+      placeholder: 'Examples: Debate captain, robotics club, varsity soccer...',
+    },
+    {
+      key: 'preferences',
+      label: 'Preferences',
+      question: '',
+      followUp: () => 'Gathering complete. Helix will analyze your profile now and match you with potential colleges.',
+      type: 'textarea',
+      value: preferences,
+      setValue: setPreferences,
+      placeholder: 'Examples: Computer science, medium-sized school, collaborative culture...',
+    },
+  ];
 
-  {/* GPA */}
-  <div>
-    <input
-      className="form-gpa"
-      type="text"
-      id="gpa"
-      value={gpa}
-      onChange={(e) => setGpa(e.target.value)}
-      placeholder="What is your GPA?"
-    />
-  </div>
+  const activePrompt = prompts[step];
 
-  {/* Budget */}
-  <div >
-    <input
-      className="form-budget"
-      type="text"
-      id="budget"
-      value={budget}
-      onChange={(e) => setBudget(e.target.value)}
-      placeholder="What is your annual budget?"
-   
-    />
-  </div>
+  useEffect(() => {
+    if (started && activePrompt) {
+      setCurrentInput(activePrompt.value || '');
+    }
+  }, [started, step]);
 
-  {/* Awards */}
-  <div >
-    <textarea
-      className="form-awards"
-      id="awards"
-      value={awards}
-      onChange={(e) => setAwards(e.target.value)}
-      placeholder="Do you have any academic awards, honors, or recognitions. Examples: National Merit Scholar, Science Olympiad Gold Medal, AP Scholar with Distinction."
-      
-    />
-  </div>
+  const conversation = [];
 
-  {/* Activities */}
-  <div >
-    <textarea
-      className="form-activities"
-      id="activities"
-      value={activities}
-      onChange={(e) => setActivities(e.target.value)}
-      placeholder="Tell us your story. Do you have any leadership roles, clubs, sports, volunteering, or other activities. Examples: Debate Club Captain, Volunteer Tutor, Varsity Soccer."
-      
-    />
-  </div>
+  if (started) {
+    conversation.push({ role: 'assistant', text: prompts[0].question });
 
-  {/* Preferences */}
-  <div >
-    <textarea
-      className="form-preferences"
-      id="preferences"
-      value={preferences}
-      onChange={(e) => setPreferences(e.target.value)}
-      placeholder="What is your preferences, intended major, desired school size, campus culture, or other priorities — Helix will find schools aligned with your vision."
-      rows={4}
-    />
-  </div>
+    for (let index = 0; index < step; index += 1) {
+      const prompt = prompts[index];
+      if (prompt.value) {
+        conversation.push({ role: 'user', text: prompt.value, label: prompt.label });
+        conversation.push({ role: 'assistant', text: prompt.followUp(prompt.value) });
+      }
+    }
+  }
 
-  <button className = "button-submit"type="submit">Try Helix</button>
-</form>
-);}
+  useEffect(() => {
+    if (started && threadRef.current) {
+      threadRef.current.scrollTo({
+        top: threadRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [started, step, conversation.length]);
+
+  const handleAdvance = async () => {
+    const trimmedValue = currentInput.trim();
+    if (!trimmedValue || isSubmitting || !activePrompt) return;
+
+    activePrompt.setValue(trimmedValue);
+
+    if (step === prompts.length - 1) {
+      setIsSubmitting(true);
+      await submitProfile({
+        name: prompts[0].key === activePrompt.key ? trimmedValue : name,
+        sat: prompts[1].key === activePrompt.key ? trimmedValue : sat,
+        budget: prompts[2].key === activePrompt.key ? trimmedValue : budget,
+        gpa: prompts[3].key === activePrompt.key ? trimmedValue : gpa,
+        awards: prompts[4].key === activePrompt.key ? trimmedValue : awards,
+        activities: prompts[5].key === activePrompt.key ? trimmedValue : activities,
+        preferences: prompts[6].key === activePrompt.key ? trimmedValue : preferences,
+      });
+      return;
+    }
+
+    setStep((currentStep) => currentStep + 1);
+  };
+
+  const handleKeyDown = (event) => {
+    if (activePrompt?.type !== 'textarea' && event.key === 'Enter') {
+      event.preventDefault();
+      handleAdvance();
+    }
+  };
+
+  return (
+    <div className="container-form helix-request-shell">
+      <div className={`helix-request-panel ${started ? 'helix-request-panel-expanded' : 'helix-request-panel-collapsed'}`}>
+        {!started ? (
+          <div className='helix-request-start'>
+            <p className='helix-result-kicker'>Helix Intake</p>
+            <h2 className='helix-request-start-title'>Start a guided conversation with Helix.</h2>
+            <p className='helix-request-start-copy'>A short chat is all it takes for Helix to understand your story and build a sharper college list.</p>
+            <button type='button' className='helix-request-start-button' onClick={() => setStarted(true)}>
+              Start Helix
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className='helix-result-header'>
+              <p className='helix-result-kicker'>Helix Intake</p>
+              <h2 className='helix-result-title'>Let&apos;s build your profile together.</h2>
+            </div>
+            <div className='helix-analysis-window helix-request-window'>
+              <div className='helix-analysis-toolbar'>
+                <span className='helix-analysis-dot'></span>
+                <span className='helix-analysis-dot'></span>
+                <span className='helix-analysis-dot'></span>
+                <p className='helix-analysis-label'>Guided Profile Chat</p>
+              </div>
+              <div className='helix-request-thread' ref={threadRef}>
+                {conversation.map((message, index) => (
+                  <div key={`${message.role}-${index}`} className={`helix-chat-row helix-chat-row-${message.role}`}>
+                    <div className={`helix-chat-bubble helix-chat-bubble-${message.role} ${message.kind === 'intro' ? 'helix-chat-bubble-intro' : ''}`}>
+                      {message.label && <span className='helix-chat-label'>{message.label}</span>}
+                      <p>{message.text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className='helix-request-composer'>
+                <div className='helix-request-field-wrap'>
+                  {activePrompt.type === 'textarea' ? (
+                    <textarea
+                      className='helix-request-field helix-request-field-textarea'
+                      value={currentInput}
+                      onChange={(e) => setCurrentInput(e.target.value)}
+                      placeholder={activePrompt.placeholder}
+                      rows={4}
+                    />
+                  ) : (
+                    <input
+                      className='helix-request-field'
+                      type='text'
+                      value={currentInput}
+                      onChange={(e) => setCurrentInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder={activePrompt.placeholder}
+                    />
+                  )}
+                </div>
+                <button type='button' className='helix-request-send' onClick={handleAdvance} disabled={!currentInput.trim() || isSubmitting}>
+                  {step === prompts.length - 1 ? 'Analyze' : 'Send'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const HelixResponse = ({ analysis, recommendation, onReset })=>{
   const parsedAnalysis = parseAnalysis(analysis);
@@ -299,13 +417,17 @@ function HelixForm() {
     setLoaded(false);
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function submitProfile(profileData) {
     setLoading(true);  
     setLoaded(false); 
     try{
-    const profileData = {name, sat: Number(sat), gpa: Number(gpa), budget: Number(budget), awards, activities, preferences};
-    const response = await axios.post(`${baseUrl}`, profileData);
+    const payload = {
+      ...profileData,
+      sat: Number(profileData.sat),
+      gpa: Number(profileData.gpa),
+      budget: Number(profileData.budget),
+    };
+    const response = await axios.post(`${baseUrl}`, payload);
     setName('');
     setSat('');
     setGpa('');
@@ -331,7 +453,7 @@ function HelixForm() {
   return (<>
      {loading && <HelixLoading onReset={handleReset} />}
     {!loading && loaded && <HelixResponse analysis={analysis} recommendation = {recommendation} onReset={handleReset} />}
-    {!loading && !loaded && <HelixRequest handleSubmit = {handleSubmit} name = {name} setName ={setName} sat = {sat} setSat = {setSat} gpa= {gpa} setGpa = {setGpa} budget = {budget} setBudget = {setBudget} awards = {awards} setAwards = {setAwards} activities = {activities} setActivities = {setActivities} preferences = {preferences} setPreferences = {setPreferences} />}
+    {!loading && !loaded && <HelixRequest submitProfile = {submitProfile} name = {name} setName ={setName} sat = {sat} setSat = {setSat} gpa= {gpa} setGpa = {setGpa} budget = {budget} setBudget = {setBudget} awards = {awards} setAwards = {setAwards} activities = {activities} setActivities = {setActivities} preferences = {preferences} setPreferences = {setPreferences} />}
   </>
   );
 }
