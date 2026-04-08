@@ -312,6 +312,7 @@ html, body {
     font-family: 'Figtree', sans-serif;
     font-size: 0.88rem;
     line-height: 1.6;
+    white-space: pre-line;
 }
 
 .helix-chat-bubble-assistant {
@@ -398,6 +399,81 @@ html, body {
     opacity: 0.48;
     cursor: not-allowed;
     transform: none;
+}
+
+.helix-interaction-panel {
+    overflow: hidden;
+}
+
+.helix-interaction-thread {
+    padding-bottom: 18px;
+}
+
+.helix-chat-bubble-analysis {
+    max-width: 88%;
+    min-width: 72%;
+}
+
+.helix-school-analysis {
+    display: grid;
+    gap: 16px;
+}
+
+.helix-school-analysis-section {
+    display: grid;
+    gap: 8px;
+}
+
+.helix-school-analysis-title {
+    margin: 0;
+    color: rgba(248, 250, 255, 0.96);
+    font-family: 'Figtree', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.helix-school-analysis-section p {
+    margin: 0;
+    color: rgba(231, 236, 249, 0.9);
+    font-family: 'Figtree', sans-serif;
+    font-size: 0.86rem;
+    line-height: 1.6;
+}
+
+.helix-school-analysis-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+}
+
+.helix-school-analysis-list li {
+    position: relative;
+    padding-left: 16px;
+    color: rgba(231, 236, 249, 0.9);
+    font-family: 'Figtree', sans-serif;
+    font-size: 0.84rem;
+    line-height: 1.55;
+}
+
+.helix-school-analysis-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.7em;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(154, 188, 255, 0.82);
+}
+
+.helix-interaction-field {
+    min-height: 0;
+    height: 64px;
+    max-height: 64px;
+    padding-top: 12px;
+    padding-bottom: 12px;
 }
 
 .form-name {
@@ -957,7 +1033,7 @@ html, body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 10px 14px;
     background: linear-gradient(135deg, #728ff5 0%, #4c73e0 100%);
     color: #ffffff;
@@ -965,9 +1041,24 @@ html, body {
     font-family: 'Figtree', sans-serif;
     font-size: 0.82rem;
     font-weight: 700;
-    box-shadow: 0 14px 26px rgba(76, 115, 224, 0.18);
+    border: 1px solid rgba(201, 214, 255, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.18),
+        0 10px 22px rgba(76, 115, 224, 0.22),
+        0 0 24px rgba(124, 152, 255, 0.12);
     align-self: stretch;
     margin-top: auto;
+    cursor: pointer;
+    transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.helix-school-link:hover {
+    transform: translateY(-2px) scale(1.02);
+    border-color: rgba(228, 235, 255, 0.5);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        0 16px 30px rgba(76, 115, 224, 0.28),
+        0 0 34px rgba(145, 171, 255, 0.18);
 }
 
 .helix-loading-messages {

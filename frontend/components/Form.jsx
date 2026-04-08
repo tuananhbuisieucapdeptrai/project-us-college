@@ -1,8 +1,10 @@
 import { useState,useEffect, useRef } from 'react';
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/';
+const API_BASE_URL = import.meta.env.API_BASE_URL || 'http://localhost:3001/';
 const baseUrl = new URL('colleges/recommend', API_BASE_URL).toString();
+const getSchoolDetailsUrl = (id) => new URL(`colleges/recommend/${id}`, API_BASE_URL).toString();
+const getSchoolQuestionsUrl = (id) => new URL(`colleges/recommend/${id}/questions`, API_BASE_URL).toString();
 
 const analysisSections = [
   ['strengths', 'Key Strengths'],
@@ -12,6 +14,21 @@ const analysisSections = [
   ['academic_admissions_insight', 'What Admissions Officers See'],
   ['overall_feedback', 'Overall Feedback'],
   ['improvement_suggestions', 'Improvement Suggestions'],
+];
+
+const schoolAnalysisSections = [
+  ['school_summary', 'School Summary'],
+  ['what_school_is_known_for', 'What This School Is Known For'],
+  ['academic_environment', 'Academic Environment'],
+  ['relevant_programs_for_you', 'Relevant Programs For You'],
+  ['fit_analysis', 'Fit Analysis'],
+  ['your_strengths_for_this_school', 'Your Strengths For This School'],
+  ['potential_gaps', 'Potential Gaps'],
+  ['academic_experience_insight', 'Academic Experience Insight'],
+  ['admission_strategy', 'Admission Strategy'],
+  ['actionable_advice', 'Actionable Advice'],
+  ['overall_takeaway', 'Overall Takeaway'],
+  ['official_website', 'Official Website'],
 ];
 
 const parseAnalysis = (analysis) => {
@@ -39,6 +56,16 @@ const formatSize = (size) => {
   const value = Number(size);
   if (Number.isNaN(value)) return 'N/A';
   return value.toLocaleString();
+};
+
+const formatQuestionResponse = (data) => {
+  const sections = [
+    data?.answer,
+    data?.personalized_insight,
+    data?.actionable_tip,
+  ].filter(Boolean);
+
+  return sections.join('\n\n');
 };
 
 const HelixRequest = ({ submitProfile, name, setName, sat, setSat, gpa, setGpa, budget, setBudget, awards, setAwards, activities, setActivities, preferences, setPreferences }) => {
@@ -250,7 +277,8 @@ const HelixRequest = ({ submitProfile, name, setName, sat, setSat, gpa, setGpa, 
   );
 }
 
-const HelixResponse = ({ analysis, recommendation, onReset })=>{
+const HelixResponse = ({ analysis, recommendation, handleDetails, onReset })=>{
+  
   const parsedAnalysis = parseAnalysis(analysis);
   const schoolTiers = [
     { key: 'dream', label: 'Dream' },
@@ -332,14 +360,13 @@ const HelixResponse = ({ analysis, recommendation, onReset })=>{
                 </span>
               </li>
             </ul>
-            <a
+            <button
               className='helix-school-link'
-              href={normalizeUrl(school.school_url)}
-              target='_blank'
-              rel='noreferrer'
+              type='button'
+              onClick={() => handleDetails(school)}
             >
-              Visit Website
-            </a>
+              See details
+            </button>
           </article>
         ))}
       </div>
@@ -403,6 +430,187 @@ const HelixLoading = ({ onReset }) => {
   );
 }
 
+const HelixInteraction = ({ school, studentProfile, onBack }) => {
+  const [messages, setMessages] = useState([]);
+  const [question, setQuestion] = useState('');
+  const [loadingDetails, setLoadingDetails] = useState(true);
+  const [asking, setAsking] = useState(false);
+  const threadRef = useRef(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchSchoolDetails = async () => {
+      setLoadingDetails(true);
+      try {
+        const response = await axios.post(getSchoolDetailsUrl(school.unitid || school.id), studentProfile);
+        if (!isMounted) return;
+        setMessages([
+          {
+            role: 'assistant',
+            type: 'school-analysis',
+            data: response.data,
+          },
+        ]);
+      } catch (error) {
+        if (!isMounted) return;
+        setMessages([
+          {
+            role: 'assistant',
+            type: 'text',
+            text: 'I ran into a problem while loading this school. Please try again in a moment.',
+          },
+        ]);
+      } finally {
+        if (isMounted) {
+          setLoadingDetails(false);
+        }
+      }
+    };
+
+    fetchSchoolDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [school, studentProfile]);
+
+  useEffect(() => {
+    if (threadRef.current) {
+      threadRef.current.scrollTo({
+        top: threadRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [messages.length, loadingDetails]);
+
+  const handleAsk = async () => {
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion || asking) return;
+
+    setMessages((current) => [
+      ...current,
+      { role: 'user', type: 'text', text: trimmedQuestion, label: 'Your Question' },
+    ]);
+    setQuestion('');
+    setAsking(true);
+
+    try {
+      const response = await axios.post(getSchoolQuestionsUrl(school.unitid || school.id), {
+        ...studentProfile,
+        question: trimmedQuestion,
+      });
+
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          type: 'text',
+          text: formatQuestionResponse(response.data),
+        },
+      ]);
+    } catch (error) {
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          type: 'text',
+          text: 'I could not answer that question right now. Please try again.',
+        },
+      ]);
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  const handleQuestionKeyDown = (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault();
+      handleAsk();
+    }
+  };
+
+  return (
+    <div className='container-form helix-result-shell'>
+      <div className='helix-result-panel helix-interaction-panel'>
+        <div className='helix-result-header'>
+          <button type='button' className='helix-result-reset' onClick={onBack} aria-label='Back to recommended schools'>
+            <span aria-hidden='true'>←</span>
+          </button>
+          <p className='helix-result-kicker'>School Interaction</p>
+          <h2 className='helix-result-title'>{school.name}</h2>
+        </div>
+        <div className='helix-analysis-window helix-request-window'>
+          <div className='helix-analysis-toolbar'>
+            <span className='helix-analysis-dot'></span>
+            <span className='helix-analysis-dot'></span>
+            <span className='helix-analysis-dot'></span>
+            <p className='helix-analysis-label'>Helix School Chat</p>
+          </div>
+          <div className='helix-request-thread helix-interaction-thread' ref={threadRef}>
+            {loadingDetails ? (
+              <div className='helix-chat-row helix-chat-row-assistant'>
+                <div className='helix-chat-bubble helix-chat-bubble-assistant'>
+                  <p>Gathering your school-specific analysis now...</p>
+                </div>
+              </div>
+            ) : (
+              messages.map((message, index) => (
+                <div key={`${message.role}-${index}`} className={`helix-chat-row helix-chat-row-${message.role}`}>
+                  <div className={`helix-chat-bubble helix-chat-bubble-${message.role} ${message.type === 'school-analysis' ? 'helix-chat-bubble-analysis' : ''}`}>
+                    {message.label && <span className='helix-chat-label'>{message.label}</span>}
+                    {message.type === 'school-analysis' ? (
+                      <div className='helix-school-analysis'>
+                        {schoolAnalysisSections.map(([key, label]) => {
+                          const value = message.data?.[key];
+                          if (!value || (Array.isArray(value) && value.length === 0)) return null;
+
+                          return (
+                            <section key={key} className='helix-school-analysis-section'>
+                              <h3 className='helix-school-analysis-title'>{label}</h3>
+                              {Array.isArray(value) ? (
+                                <ul className='helix-school-analysis-list'>
+                                  {value.map((item, itemIndex) => (
+                                    <li key={`${key}-${itemIndex}`}>{item}</li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p>{value}</p>
+                              )}
+                            </section>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p>{message.text}</p>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <div className='helix-request-composer'>
+            <div className='helix-request-field-wrap'>
+              <textarea
+                className='helix-request-field helix-request-field-textarea helix-interaction-field'
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={handleQuestionKeyDown}
+                placeholder={`Ask Helix anything about ${school.name}...`}
+                rows={2}
+              />
+            </div>
+            <button type='button' className='helix-request-send' onClick={handleAsk} disabled={!question.trim() || asking || loadingDetails}>
+              {asking ? 'Thinking' : 'Ask'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function HelixForm() {
   const [name, setName] = useState('');
   const [sat, setSat] = useState('');
@@ -415,10 +623,18 @@ function HelixForm() {
   const [recommendation, setRecommendation] = useState('');
   const [loaded,setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submittedProfile, setSubmittedProfile] = useState(null);
+  const [selectedSchool, setSelectedSchool] = useState(null);
 
   function handleReset() {
     setLoading(false);
     setLoaded(false);
+    setSelectedSchool(null);
+    setSubmittedProfile(null);
+  }
+
+  function handleInteractionBack() {
+    setSelectedSchool(null);
   }
 
   async function submitProfile(profileData) {
@@ -431,6 +647,7 @@ function HelixForm() {
       gpa: Number(profileData.gpa),
       budget: Number(profileData.budget),
     };
+    setSubmittedProfile(payload);
     const response = await axios.post(`${baseUrl}`, payload);
     setName('');
     setSat('');
@@ -454,9 +671,15 @@ function HelixForm() {
     }
   }
   
+  const handleDetails = (school) => {
+    setSelectedSchool(school);
+  }
+
+
   return (<>
      {loading && <HelixLoading onReset={handleReset} />}
-    {!loading && loaded && <HelixResponse analysis={analysis} recommendation = {recommendation} onReset={handleReset} />}
+    {!loading && !selectedSchool && loaded && <HelixResponse analysis={analysis} recommendation = {recommendation} handleDetails={handleDetails} onReset={handleReset} />}
+    {!loading && selectedSchool && submittedProfile && <HelixInteraction school={selectedSchool} studentProfile={submittedProfile} onBack={handleInteractionBack} />}
     {!loading && !loaded && <HelixRequest submitProfile = {submitProfile} name = {name} setName ={setName} sat = {sat} setSat = {setSat} gpa= {gpa} setGpa = {setGpa} budget = {budget} setBudget = {setBudget} awards = {awards} setAwards = {setAwards} activities = {activities} setActivities = {setActivities} preferences = {preferences} setPreferences = {setPreferences} />}
   </>
   );

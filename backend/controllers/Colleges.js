@@ -5,7 +5,7 @@ import { getStudentAcademic, getSchoolAcademic } from '../src/scoring/academicSc
 import { getStudentActivity, getSchoolActivity } from '../src/scoring/activityScore.js';
 import { getStudentPreference, getSchoolPreference } from '../src/scoring/preferenceScore.js';
 import { cosineSimilarity } from '../models/embedding.js';
-import { analyzeStudentProfile } from '../models/llm.js';
+import { analyzeStudentProfile, analyzeSchoolInformation, answeringQuestion } from '../models/llm.js';
 
 
 const collegeRouter = Router()
@@ -308,4 +308,86 @@ collegeRouter.post('/recommend', async (req, res) => {
       res.status(500).json({ error: err.message });
     }
   });
+
+
+
+  collegeRouter.post('/recommend/:id', async (req, res)=>{
+    try {
+  
+      const schoolId = req.params.id;
+      const { name, sat, gpa, budget, awards, activities, preferences } = req.body;
+      const school_raw = await supabase
+        .from('colleges_metadata')
+        .select('*')
+        .eq('unitid', schoolId);
+  
+      if (!school_raw.data || school_raw.data.length === 0) {
+        return res.status(404).json({ error: "School not found" });
+      }
+  
+      const school = school_raw.data[0];
+      const student = {
+        name,
+        sat,
+        gpa,
+        budget,
+        awards,
+        activities,
+        preferences
+      };
+  
+      const analysePromise = analyzeSchoolInformation(school, student);
+      const analyseSchool = await analysePromise;
+  
+      return res.json(JSON.parse(analyseSchool));
+  
+    }
+    catch(err){
+      res.status(500).json({error: err.message});
+    }
+  });
+
+collegeRouter.post('/recommend/:id/questions', async (req,res)=>{
+  try{
+      const schoolId = req.params.id;
+      const { question, name, sat, gpa, budget, awards, activities, preferences } = req.body;
+      const school_raw = await supabase
+        .from('colleges_metadata')
+        .select('*')
+        .eq('unitid', schoolId);
+  
+      if (!school_raw.data || school_raw.data.length === 0) {
+        return res.status(404).json({ error: "School not found" });
+      }
+      if (!question || question.trim() === "") {
+        return res.status(400).json({ error: "Question is required" });
+      }
+      const school = school_raw.data[0];
+      const student = {
+        name,
+        sat,
+        gpa,
+        budget,
+        awards,
+        activities,
+        preferences
+      };
+
+      const answeringPromise = answeringQuestion(question, school, student);
+      const answerQuestion = await answeringPromise;
+  
+      let parsed;
+      try {
+        parsed = JSON.parse(answerQuestion);
+      } catch {
+        parsed = { answer: answerQuestion };
+      }
+
+      return res.json(parsed);
+
+  }
+  catch(err){
+    res.status(500).json({error: err.message});
+  }
+});
 export { collegeRouter}
