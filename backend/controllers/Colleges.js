@@ -118,10 +118,10 @@ collegeRouter.post('/recommend', async (req, res) => {
       // This is based on the budget and the SAT score
       const studentSAT = Number(sat);
       const maxCost = 3.5 * Number(budget);
-      const dreamLow = studentSAT + 80;
-      const dreamHigh = studentSAT + 150;
-      const matchLow = studentSAT - 60;
-      const safeLow = studentSAT - 150;
+      const dreamLow = studentSAT + 20;
+      const dreamHigh = studentSAT + 50;
+      const matchLow = studentSAT - 80;
+      const safeLow = studentSAT - 120;
   
 
       const [dream, realistic, safe] = await Promise.all([

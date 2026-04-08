@@ -61,9 +61,13 @@ const formatSize = (size) => {
 const formatQuestionResponse = (data) => {
   const sections = [
     data?.answer,
-    data?.personalized_insight,
-    data?.actionable_tip,
-  ].filter(Boolean);
+    Array.isArray(data?.extra_insights) && data.extra_insights.length > 0
+      ? `Extra insights:\n${data.extra_insights.map((item) => `• ${item}`).join('\n')}`
+      : null,
+    data?.next_step
+      ? `Next step:\n${data.next_step}`
+      : null,
+  ].filter((section) => typeof section === 'string' && section.trim() !== '');
 
   return sections.join('\n\n');
 };

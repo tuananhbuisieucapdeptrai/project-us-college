@@ -3,6 +3,7 @@ import './App.css'
 import { useRef, useEffect } from 'react';
 import HelixForm from '../components/Form.jsx';
 import FAQ from '../components/FAQ.jsx';
+import axios from 'axios';
 
 
 
@@ -27,6 +28,10 @@ function App (){
       });
     }
   };
+
+  useEffect(() => {
+    axios.get(import.meta.env.VITE_API_BASE_URL)
+  }, [])
   
   return <div className="app-shell">
     <div className="video-container">
