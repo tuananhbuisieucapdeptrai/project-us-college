@@ -53,9 +53,12 @@ function App (){
 
     <div className="form-float" ref={formSectionRef}>
       <HelixForm />
+    </div>
+
+    <section className="offer-block">
       <h1 className='helix-offer'>Find your perfect match. <br />Every single time.</h1>
       <p className='helix-offer-text'>Professional-grade guidance, accessible to every student.</p>
-    </div>
+    </section>
 
     {/* This is the container that will hold the form and overlap the video */}
     <div className='below-field'>
