@@ -1,10 +1,11 @@
 import { useState,useEffect, useRef } from 'react';
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/';
+const API_BASE_URL = import.meta.env.API_BASE_URL || import.meta.env.API_BASE_URL || 'http://localhost:3001/';
 const baseUrl = new URL('colleges/recommend', API_BASE_URL).toString();
 const getSchoolDetailsUrl = (id) => new URL(`colleges/recommend/${id}`, API_BASE_URL).toString();
 const getSchoolQuestionsUrl = (id) => new URL(`colleges/recommend/${id}/questions`, API_BASE_URL).toString();
+const submitInfoUrl = new URL('colleges/gathering', API_BASE_URL).toString();
 
 const analysisSections = [
   ['strengths', 'Key Strengths'],
@@ -36,14 +37,9 @@ const parseAnalysis = (analysis) => {
 
   try {
     return JSON.parse(analysis);
-  } catch (error) {
+  } catch {
     return { overall_feedback: analysis };
   }
-};
-
-const normalizeUrl = (url) => {
-  if (!url) return '#';
-  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
 };
 
 const formatAcceptanceRate = (rate) => {
@@ -71,6 +67,368 @@ const formatQuestionResponse = (data) => {
 
   return sections.join('\n\n');
 };
+
+const profileFields = ['name', 'sat', 'budget', 'gpa', 'awards', 'activities', 'preferences'];
+
+const emptyProfile = {
+  name: '',
+  sat: '',
+  budget: '',
+  gpa: '',
+  awards: '',
+  activities: '',
+  preferences: '',
+};
+
+const fieldLabels = {
+  name: 'Your Name',
+  sat: 'SAT Score',
+  budget: 'Annual Budget',
+  gpa: 'GPA',
+  awards: 'Awards',
+  activities: 'Activities',
+  preferences: 'Preferences',
+};
+
+const fieldPlaceholders = {
+  name: 'Tell Helix your name...',
+  sat: 'Share your SAT score...',
+  budget: 'Share your annual budget...',
+  gpa: 'Share your GPA...',
+  awards: 'Tell Helix about awards or honors...',
+  activities: 'Share activities, leadership, work, sports, or volunteering...',
+  preferences: 'Share intended major, school size, culture, location, or anything else...',
+};
+
+const fieldQuestions = {
+  name: [
+    'What is your name?',
+    'Can you tell me your name?',
+    'What name should I use for your profile?',
+    'How should I address you?',
+    'Please share your name.',
+    'What is your full name?',
+  ],
+  sat: [
+    'What is your SAT score?',
+    'Can you tell me your SAT score?',
+    'What SAT score should I use for your profile?',
+    'Please share your latest SAT score.',
+    'What is your current or expected SAT score?',
+    'What SAT result would you like Helix to use?',
+  ],
+  budget: [
+    'What is your annual college budget?',
+    'Can you share your yearly budget for college?',
+    'What annual budget should I use for your college list?',
+    'How much can you budget per year?',
+    'What is your approximate yearly budget?',
+    'Please share your expected annual budget.',
+  ],
+  gpa: [
+    'What is your GPA?',
+    'Can you tell me your GPA on a 4.0 scale?',
+    'What GPA should I use for your profile?',
+    'Please share your current GPA.',
+    'What is your latest GPA?',
+    'What GPA best represents your academic profile?',
+  ],
+  awards: [
+    'Do you have any awards or honors?',
+    'Can you share your academic awards or recognitions?',
+    'What awards, honors, or distinctions should I include?',
+    'Please tell me about any awards you have earned.',
+    'Do you have competitions, honors, or recognitions to add?',
+    'What achievements should Helix know about?',
+  ],
+  activities: [
+    'What activities are you involved in?',
+    'Can you share your extracurriculars, leadership, work, sports, or volunteering?',
+    'What activities should I include in your profile?',
+    'Please tell me about your commitments outside class.',
+    'What leadership, clubs, projects, or service have you done?',
+    'What parts of your story outside academics should Helix know?',
+  ],
+  preferences: [
+    'What are your college preferences?',
+    'Can you share your intended major, location, size, culture, or other preferences?',
+    'What kind of colleges are you hoping to find?',
+    'Please tell me what matters most in your college search.',
+    'What major, campus style, or environment are you looking for?',
+    'What should Helix prioritize when matching colleges for you?',
+  ],
+};
+
+const getInitialProfile = ({ name, sat, budget, gpa, awards, activities, preferences }) => ({
+  ...emptyProfile,
+  name: name || '',
+  sat: sat || '',
+  budget: budget || '',
+  gpa: gpa || '',
+  awards: awards || '',
+  activities: activities || '',
+  preferences: preferences || '',
+});
+
+const normalizeGatherResponse = (data) => {
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data);
+    } catch {
+      return { reply: data, field_updates: {}, next_field: '', is_valid: false };
+    }
+  }
+
+  return data || {};
+};
+
+const normalizeBoolean = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value.toLowerCase() === 'true';
+  return Boolean(value);
+};
+
+const getNextFieldByOrder = (field) => {
+  const index = profileFields.indexOf(field);
+  if (index === -1) return field;
+  return profileFields[index + 1] || 'complete';
+};
+
+const getValidField = (field, fallback = 'name') => (
+  profileFields.includes(field) || field === 'complete' ? field : fallback
+);
+
+const getQuestionForField = (field) => {
+  const questions = fieldQuestions[field] || fieldQuestions.name;
+  return questions[Math.floor(Math.random() * questions.length)];
+};
+
+const composeAssistantMessage = ({ reply, question }) => (
+  [reply, question].filter((part) => typeof part === 'string' && part.trim() !== '').join(' ')
+);
+
+const getFirstMissingField = (profile) => (
+  profileFields.find((field) => String(profile?.[field] || '').trim() === '') || 'complete'
+);
+
+const normalizeFieldUpdates = ({ fieldUpdates, currentField, answer, isValidAnswer }) => {
+  if (fieldUpdates && typeof fieldUpdates === 'object' && !Array.isArray(fieldUpdates)) {
+    return Object.fromEntries(
+      Object.entries(fieldUpdates).filter(([field]) => profileFields.includes(field))
+    );
+  }
+
+  if (!isValidAnswer) return {};
+
+  if (typeof fieldUpdates === 'string' && profileFields.includes(fieldUpdates)) {
+    return { [fieldUpdates]: answer };
+  }
+
+  return { [currentField]: answer };
+};
+
+const HelixRequestUpdated = ({ builtProfile, setBuiltProfile, submitProfile, name, setName, sat, setSat, gpa, setGpa, budget, setBudget, awards, setAwards, activities, setActivities, preferences, setPreferences}) => {
+  const [answer, setAnswer] = useState('');
+  const [messages, setMessages] = useState([
+    {
+      role: 'assistant',
+      type: 'text',
+      text: `Hello, this is Helix, your AI admissions assistant. Before I help you, let's first get to know you. ${getQuestionForField('name')}`,
+    },
+  ]);
+  const [answering, setAnswering] = useState(false);
+  const [currentField, setCurrentField] = useState('name');
+  const [started, setStarted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const threadRef = useRef(null);
+
+  const currentProfile = builtProfile || getInitialProfile({ name, sat, budget, gpa, awards, activities, preferences });
+
+  useEffect(() => {
+    if (!builtProfile) {
+      setBuiltProfile(currentProfile);
+    }
+  }, [builtProfile, currentProfile, setBuiltProfile]);
+
+  useEffect(() => {
+    if (threadRef.current) {
+      threadRef.current.scrollTo({
+        top: threadRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [messages.length, answering]);
+
+  const syncProfileState = (profile) => {
+    setName(profile.name || '');
+    setSat(profile.sat || '');
+    setBudget(profile.budget || '');
+    setGpa(profile.gpa || '');
+    setAwards(profile.awards || '');
+    setActivities(profile.activities || '');
+    setPreferences(profile.preferences || '');
+  };
+
+  const isProfileComplete = (profile) => (
+    profileFields.every((field) => String(profile?.[field] || '').trim() !== '')
+  );
+
+  const handleAnswer = async () => {
+    const trimmedAnswer = answer.trim();
+    if (answering || isSubmitting) return;
+
+    if (!trimmedAnswer) return;
+
+    setMessages((current) => [
+      ...current,
+      { role: 'user', type: 'text', text: trimmedAnswer, label: fieldLabels[currentField] || 'Your Answer' },
+    ]);
+    setAnswer('');
+    setAnswering(true);
+
+    try {
+      const state = {
+        current_field: currentField,
+        student_profile: currentProfile,
+        user_message: trimmedAnswer,
+      };
+
+      const response = await axios.post(submitInfoUrl, { state });
+      const data = normalizeGatherResponse(response.data);
+      const isValidAnswer = normalizeBoolean(data.is_valid);
+      const fieldUpdates = normalizeFieldUpdates({
+        fieldUpdates: data.field_updates,
+        currentField,
+        answer: trimmedAnswer,
+        isValidAnswer,
+      });
+      const fallbackNextField = getNextFieldByOrder(currentField);
+      const nextProfile = isValidAnswer
+        ? { ...currentProfile, ...fieldUpdates }
+        : currentProfile;
+      const firstMissingField = getFirstMissingField(nextProfile);
+      const nextField = isValidAnswer
+        ? getValidField(data.next_field, fallbackNextField)
+        : currentField;
+      const safeNextField = nextField === 'complete' && firstMissingField !== 'complete'
+        ? firstMissingField
+        : nextField;
+      const questionField = isValidAnswer ? safeNextField : currentField;
+      const nextQuestion = questionField === 'complete' ? '' : getQuestionForField(questionField);
+      const assistantText = composeAssistantMessage({
+        reply: data.reply,
+        question: nextQuestion,
+      });
+
+      setBuiltProfile(nextProfile);
+      syncProfileState(nextProfile);
+      setCurrentField(safeNextField);
+
+      if (assistantText) {
+        setMessages((current) => [
+          ...current,
+          {
+            role: 'assistant',
+            type: 'text',
+            text: assistantText,
+          },
+        ]);
+      }
+
+      if (isValidAnswer && isProfileComplete(nextProfile)) {
+        setIsSubmitting(true);
+        await submitProfile(nextProfile);
+        return;
+      }
+    } catch {
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          type: 'text',
+          text: 'I could not process your answer right now. Please try again.',
+        },
+      ]);
+    } finally {
+      setAnswering(false);
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAnswerKeyDown = (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleAnswer();
+    }
+  };
+
+  return (
+    <div className='container-form helix-request-shell'>
+      <div className={`helix-request-panel ${started ? 'helix-request-panel-expanded helix-interaction-panel' : 'helix-request-panel-collapsed'}`}>
+      {!started ? (
+          <div className='helix-request-start'>
+            <p className='helix-result-kicker'>Helix Intake</p>
+            <h2 className='helix-request-start-title'>Start a guided conversation with Helix.</h2>
+            <p className='helix-request-start-copy'>A short chat is all it takes for Helix to understand your story and build a sharper college list.</p>
+            <button type='button' className='helix-request-start-button' onClick={() => setStarted(true)}>
+              Start Helix
+            </button>
+          </div>
+        ) :(
+        <>
+        <div className='helix-result-header'>
+          <p className='helix-result-kicker'>Helix Intake</p>
+          <h2 className='helix-result-title'>Let&apos;s build your profile together.</h2>
+        </div>
+        <div className='helix-analysis-window helix-request-window'>
+          <div className='helix-analysis-toolbar'>
+            <span className='helix-analysis-dot'></span>
+            <span className='helix-analysis-dot'></span>
+            <span className='helix-analysis-dot'></span>
+            <p className='helix-analysis-label'>Guided Profile Chat</p>
+          </div>
+          <div className='helix-request-thread helix-interaction-thread' ref={threadRef}>
+            {messages.map((message, index) => (
+              <div key={`${message.role}-${index}`} className={`helix-chat-row helix-chat-row-${message.role}`}>
+                <div className={`helix-chat-bubble helix-chat-bubble-${message.role}`}>
+                  {message.label && <span className='helix-chat-label'>{message.label}</span>}
+                  <p>{message.text}</p>
+                </div>
+              </div>
+            ))}
+            {answering && (
+              <div className='helix-chat-row helix-chat-row-assistant'>
+                <div className='helix-chat-bubble helix-chat-bubble-assistant helix-chat-bubble-intro'>
+                  <p>Helix is reading your answer...</p>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className='helix-request-composer'>
+            <div className='helix-request-field-wrap'>
+              <textarea
+                className='helix-request-field helix-request-field-textarea helix-interaction-field'
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                onKeyDown={handleAnswerKeyDown}
+                placeholder={fieldPlaceholders[currentField] || 'Type your answer...'}
+                rows={2}
+              />
+            </div>
+            <button type='button' className='helix-request-send' onClick={handleAnswer} disabled={!answer.trim() || answering || isSubmitting}>
+              {isSubmitting ? 'Analyzing' : answering ? 'Thinking' : 'Send'}
+            </button>
+          </div>
+        </div>
+        </>)}
+      </div>
+    </div>);
+}
+
+
+
+
+
 
 const HelixRequest = ({ submitProfile, name, setName, sat, setSat, gpa, setGpa, budget, setBudget, awards, setAwards, activities, setActivities, preferences, setPreferences }) => {
   const [started, setStarted] = useState(false);
@@ -154,11 +512,13 @@ const HelixRequest = ({ submitProfile, name, setName, sat, setSat, gpa, setGpa, 
 
   const activePrompt = prompts[step];
 
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
   useEffect(() => {
     if (started && activePrompt) {
       setCurrentInput(activePrompt.value || '');
     }
   }, [started, step]);
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   const conversation = [];
 
@@ -456,7 +816,7 @@ const HelixInteraction = ({ school, studentProfile, onBack }) => {
             data: response.data,
           },
         ]);
-      } catch (error) {
+      } catch {
         if (!isMounted) return;
         setMessages([
           {
@@ -513,7 +873,7 @@ const HelixInteraction = ({ school, studentProfile, onBack }) => {
           text: formatQuestionResponse(response.data),
         },
       ]);
-    } catch (error) {
+    } catch {
       setMessages((current) => [
         ...current,
         {
@@ -528,7 +888,8 @@ const HelixInteraction = ({ school, studentProfile, onBack }) => {
   };
 
   const handleQuestionKeyDown = (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+    if(event.key === 'Enter' && !event.shiftKey){
+    //if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault();
       handleAsk();
     }
@@ -628,13 +989,25 @@ function HelixForm() {
   const [loaded,setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submittedProfile, setSubmittedProfile] = useState(null);
+  const [builtProfile, setBuiltProfile] = useState(null);
   const [selectedSchool, setSelectedSchool] = useState(null);
+
 
   function handleReset() {
     setLoading(false);
     setLoaded(false);
     setSelectedSchool(null);
     setSubmittedProfile(null);
+    setBuiltProfile(null);
+    setName('');
+    setSat('');
+    setGpa('');
+    setBudget('');
+    setAwards('');
+    setActivities('');
+    setPreferences('');
+    setAnalysis('');
+    setRecommendation('');
   }
 
   function handleInteractionBack() {
@@ -653,13 +1026,6 @@ function HelixForm() {
     };
     setSubmittedProfile(payload);
     const response = await axios.post(`${baseUrl}`, payload);
-    setName('');
-    setSat('');
-    setGpa('');
-    setBudget('');
-    setAwards('');
-    setActivities('');
-    setPreferences('');
     setAnalysis(response.data.analysis);
     setRecommendation(response.data.recommendation);
     setLoaded(true);
@@ -684,7 +1050,7 @@ function HelixForm() {
      {loading && <HelixLoading onReset={handleReset} />}
     {!loading && !selectedSchool && loaded && <HelixResponse analysis={analysis} recommendation = {recommendation} handleDetails={handleDetails} onReset={handleReset} />}
     {!loading && selectedSchool && submittedProfile && <HelixInteraction school={selectedSchool} studentProfile={submittedProfile} onBack={handleInteractionBack} />}
-    {!loading && !loaded && <HelixRequest submitProfile = {submitProfile} name = {name} setName ={setName} sat = {sat} setSat = {setSat} gpa= {gpa} setGpa = {setGpa} budget = {budget} setBudget = {setBudget} awards = {awards} setAwards = {setAwards} activities = {activities} setActivities = {setActivities} preferences = {preferences} setPreferences = {setPreferences} />}
+    {!loading && !loaded && <HelixRequestUpdated builtProfile={builtProfile} setBuiltProfile={setBuiltProfile} submitProfile = {submitProfile} name = {name} setName ={setName} sat = {sat} setSat = {setSat} gpa= {gpa} setGpa = {setGpa} budget = {budget} setBudget = {setBudget} awards = {awards} setAwards = {setAwards} activities = {activities} setActivities = {setActivities} preferences = {preferences} setPreferences = {setPreferences} />}
   </>
   );
 }

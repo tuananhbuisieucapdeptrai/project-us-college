@@ -5,7 +5,7 @@ import { getStudentAcademic, getSchoolAcademic } from '../src/scoring/academicSc
 import { getStudentActivity, getSchoolActivity } from '../src/scoring/activityScore.js';
 import { getStudentPreference, getSchoolPreference } from '../src/scoring/preferenceScore.js';
 import { cosineSimilarity } from '../models/embedding.js';
-import { analyzeStudentProfile, analyzeSchoolInformation, answeringQuestion } from '../models/llm.js';
+import { analyzeStudentProfile, analyzeSchoolInformation, answeringQuestion, getStudentInformation } from '../models/llm.js';
 
 
 const collegeRouter = Router()
@@ -104,6 +104,21 @@ collegeRouter.get('/details', async (req,res)=>{
   }
 })
 
+
+async function gatherStudentInformation(req, res) {
+  try{
+    const {state} = req.body;
+    const studentInformationUpdated = await getStudentInformation(state);
+    return res.json(studentInformationUpdated);
+  }
+  catch(err){
+    res.status(500).json({error: err.message});
+
+  }
+}
+
+collegeRouter.post('/gather', gatherStudentInformation)
+collegeRouter.post('/gathering', gatherStudentInformation)
 
 
 /// Define router to post the student information, analyse and give back the list of suitable schools

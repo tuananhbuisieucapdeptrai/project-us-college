@@ -257,6 +257,104 @@ async function analyzeSchoolInformation(school, students){
 
 };
 
+async function getStudentInformation(state) {
+  const { current_field, student_profile, user_message } = state;
+
+  const response = await client.chat.completions.create({
+    model: "llama-3.1-8b-instant",
+    temperature: 0.2,
+    messages: [
+      {
+        role: "system",
+        content: `
+      You are Helix AI, a friendly and knowledgeable US college admissions advisor.
+
+      Your ONLY job is to:
+      1. Understand the student's latest message
+      2. Validate it for current_field
+      3. Extract clean structured data into field_updates
+      4. Return a very short acknowledgement or correction
+
+      The frontend owns the interview flow and will ask the next question.
+      You MUST NOT ask the next profile question.
+      You MUST NOT ask for confirmation if the answer is valid.
+      You MUST NOT ask follow-up questions about the previous field after accepting it.
+
+      You MUST return valid JSON only with real JSON types:
+      - field_updates must be an object, never a string
+      - is_valid must be a boolean, never a string
+
+      FIELDS:
+      - name: string
+      - sat: string containing a number between 400 and 1600
+      - budget: string containing a number
+      - gpa: string containing a number between 0 and 4
+      - awards: string
+      - activities: string
+      - preferences: string
+
+      FIELD ORDER:
+      name -> sat -> budget -> gpa -> awards -> activities -> preferences -> complete
+
+      current_field indicates what the frontend is currently collecting.
+      Validate the user's message against current_field.
+
+      VALID ANSWER RULES:
+      - If valid, set is_valid to true.
+      - If valid, field_updates must include the current_field and any other fields clearly provided.
+      - If valid, reply must be only a short acknowledgement of the user's latest message, such as:
+        "Nice to meet you, Tuan."
+        "Great, I’ll use 1540 for your SAT."
+        "Got it, I’ll note those activities."
+      - If valid, do not include any question mark in reply.
+
+      INVALID ANSWER RULES:
+      - If invalid, set is_valid to false.
+      - If invalid, field_updates must be {}.
+      - If invalid, next_field must remain current_field.
+      - If invalid, reply must be a short correction explaining what is needed, such as:
+        "That does not look like a SAT score yet."
+        "Please share a GPA between 0 and 4."
+      - If invalid, do not ask a full interview question. The frontend will add it.
+
+      EMPTY ANSWERS:
+      - If the user intentionally says none/no/not applicable for awards, activities, or preferences, store "None" and move forward.
+      - Empty or vague answers for name, sat, budget, or gpa are invalid.
+
+      NEXT FIELD:
+      - If valid, next_field should be the next field in FIELD ORDER after the latest required field you updated.
+      - If preferences is valid, next_field should be "complete".
+      - If invalid, next_field should equal current_field.
+
+      RETURN FORMAT:
+      {
+        "reply": "Short acknowledgement or correction only",
+        "field_updates": { "field_name": "value" },
+        "next_field": "name | sat | budget | gpa | awards | activities | preferences | complete",
+        "is_valid": true
+      }
+    `
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          current_field,
+          student_profile,
+          user_message
+        })
+      }
+    ]
+  });
+
+  const content = response.choices[0].message.content;
+
+  try {
+    return JSON.parse(content);
+  } catch (err) {
+    console.error("Invalid JSON from LLM:", content);
+    throw err;
+  }
+}
 async function answeringQuestion(question, school, students){
   const response = await client.chat.completions.create({
     model: "llama-3.1-8b-instant",
@@ -380,4 +478,4 @@ async function answeringQuestion(question, school, students){
 
 };
 
-export {client, analyzeStudentProfile, analyzeSchoolInformation, answeringQuestion};
+export {client, analyzeStudentProfile, analyzeSchoolInformation, getStudentInformation, answeringQuestion};

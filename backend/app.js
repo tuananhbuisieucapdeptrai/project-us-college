@@ -7,7 +7,7 @@ import { initializeEmbeddings } from './scripts/initAnchor.js'
 const app = express()
 app.use(express.json()) 
 app.use(cors({
-    origin: ['https://project-us-college.vercel.app','http://localhost:5174']
+    origin: ['https://project-us-college.vercel.app','http://localhost:5174', 'http://localhost:5173']
 }))
 
 await initializeEmbeddings();

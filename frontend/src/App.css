@@ -3574,3 +3574,40 @@ body,
         margin-top: -60px;
     }
 }
+
+/* Give the request/response application panels more room and lift them slightly. */
+.helix-request-shell,
+.helix-result-shell {
+    padding-top: clamp(56px, 7.1vw, 88px);
+}
+
+.helix-request-panel-expanded,
+.helix-result-panel,
+.helix-loading-panel {
+    height: min(100%, 106%);
+    max-height: calc(100% - clamp(20px, 2.2vw, 30px));
+}
+
+.helix-request-panel-expanded {
+    transform: translateY(clamp(-18px, -1.7vw, -10px));
+}
+
+.helix-result-panel,
+.helix-loading-panel {
+    transform: translateY(clamp(-18px, -1.7vw, -10px));
+}
+
+@media (max-width: 720px) {
+    .helix-request-shell,
+    .helix-result-shell {
+        padding-top: 34px;
+    }
+
+    .helix-request-panel-expanded,
+    .helix-result-panel,
+    .helix-loading-panel {
+        height: calc(100% - 18px);
+        max-height: calc(100% - 18px);
+        transform: translateY(-10px);
+    }
+}
