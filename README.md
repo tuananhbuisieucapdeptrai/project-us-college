@@ -1,220 +1,246 @@
 # Helix
 
-Helix is an educational AI assistant built to help students navigate the US college application process with more clarity, confidence, and strategic direction. Instead of treating college guidance as a static search problem, Helix is designed to act more like an intelligent admissions companion: it interprets a student's academic profile, extracurricular story, goals, and constraints, then turns that information into both narrative feedback and school recommendations.
+Helix is an AI-powered US college admissions copilot. It combines quantitative matching, embedding-based similarity, and LLM reasoning to help students understand their profile and discover a realistic, personalized college list.
 
-At its core, Helix was created around a simple belief: high-quality admissions guidance should not be reserved for students who can afford expensive private consulting or who happen to have access to highly informed mentors. The college application journey is often overwhelming, opaque, and unequal. Helix exists to make that process more understandable and more accessible.
+## Motivation
+
+US admissions guidance is often expensive, uneven, and hard to access. Helix is built to make high-quality strategy more accessible by giving students:
+- clear profile feedback
+- data-backed school matching
+- practical next-step guidance
+- instant iteration through conversation
 
 ## Mission
 
-Helix aims to make US college admissions guidance:
+Helix exists to democratize strong admissions guidance.
 
-- more accessible for students who may not have access to traditional mentorship
-- more personalized than generic search tools and rankings
-- more strategic than one-size-fits-all recommendation engines
-- more immediate, so students can iterate on their profile in real time
+The mission is to provide:
+- `accessible` strategy for students without private counseling
+- `personalized` recommendations beyond static rankings
+- `explainable` outputs (why this profile, why these schools)
+- `actionable` advice students can use immediately
 
-The product is intentionally positioned between two worlds: the warmth and interpretive value of mentorship, and the scale, consistency, and speed of modern AI systems. The goal is not simply to generate college lists. It is to help students better understand how their profile reads, what narrative they are communicating, where they are strong, where they are vulnerable, and how they can move forward more intentionally.
+---
 
-## What Helix Does
+## What Helix Does Today
 
-Helix currently supports a workflow where a student:
+Helix supports an end-to-end workflow:
 
-1. Enters key profile information through the frontend experience.
-2. Submits academic, extracurricular, and preference data to the backend.
-3. Receives a structured AI-generated admissions analysis.
-4. Receives a recommended set of schools organized into `dream`, `realistic`, and `safe` categories.
+1. Student completes guided intake chat (`name`, `sat`, `budget`, `gpa`, `awards`, `activities`, `preferences`).
+2. Backend produces profile analysis via LLM (`strengths`, `weaknesses`, major inference, competitiveness insight, improvement plan).
+3. Backend builds a candidate school pool from Supabase and computes fit signals.
+4. Schools are tiered into `dream`, `realistic`, `safe`.
+5. A second LLM stage (RAG-like shortlist reranker) selects final schools from candidates only.
+6. Frontend renders analysis + recommended schools.
+7. Student can open any school and get:
+   - school-specific fit analysis
+   - follow-up Q&A grounded in school + student context
 
-The analysis is not meant to be a superficial summary of what the student already typed. It is designed to interpret the profile in a more strategic way, including:
+---
 
-- key strengths
-- meaningful weaknesses or gaps
-- inferred academic interests or likely majors
-- competitiveness context
-- what admissions officers usually look for in those areas
-- practical improvement suggestions
+## Architecture
 
-Alongside that analysis, Helix produces school recommendations backed by a matching pipeline that blends hard filtering, scoring, and similarity-based ranking.
+### Frontend
+- React 19 + Vite
+- Axios for API calls
+- Custom CSS UI with guided chat intake, analysis console, recommendation cards, and school interaction chat
 
-## Product Philosophy
+### Backend
+- Node.js + Express
+- Supabase data access
+- Hugging Face embeddings (`BAAI/bge-base-en-v1.5`)
+- Groq OpenAI-compatible API (`llama-3.1-8b-instant`) for structured analysis and selection
 
-Helix is built around a few product principles:
+### Data Sources
+- Supabase tables used by runtime:
+  - `anchors`
+  - `colleges_simple`
+  - `colleges_embedding`
+  - `colleges_metadata`
 
-- Students need explanation, not just output.
-- Recommendations should feel grounded, not random.
-- Good admissions guidance should be honest without being discouraging.
-- Interfaces should feel calm, modern, and supportive rather than institutional or intimidating.
+---
 
-That philosophy shows up in both sides of the system: the backend reasoning pipeline and the frontend experience.
+## Recommendation Pipeline (Current)
 
-## High-Level Architecture
+Implemented mainly in `backend/controllers/Colleges.js` and `backend/src/scoring/*`:
 
-The project is split into two main parts:
+1. **Candidate filtering**
+   - Filters by SAT window and tuition affordability from `colleges_simple`.
 
-- [`frontend/`](/Users/buituananh/Downloads/project-us-college/frontend): a React/Vite client that presents the Helix landing page, intake form, loading experience, AI analysis window, and recommended college cards
-- [`backend/`](/Users/buituananh/Downloads/project-us-college/backend): an Express-based API that analyzes student profiles, scores colleges, queries Supabase data, and returns structured results to the frontend
+2. **School feature enrichment**
+   - Computes missing `academic_score`, `activity_embedding`, and `preference_embedding` for schools in `colleges_embedding`.
 
-### End-to-End Flow
+3. **Student embedding signals**
+   - Embeds student activities and preferences.
 
-1. A student fills out the Helix form with GPA, SAT, budget, awards, activities, and preferences.
-2. The frontend sends a `POST` request to the backend at `/colleges/recommend`.
-3. The backend starts two processes in parallel:
-   - an LLM-based profile analysis
-   - a recommendation pipeline that filters and ranks colleges
-4. The backend returns:
-   - `analysis`: a structured JSON string generated by the language model
-   - `recommendation`: grouped school results under `dream`, `realistic`, and `safe`
-5. The frontend renders the response inside a custom “AI application window” embedded in the form container.
+4. **Tier assignment**
+   - Uses `getAdmissionTier` with SAT delta + selectivity logic.
+   - Includes broader safe rules to reduce empty-safe cases.
+   - If safe is still empty, deterministic fallback moves a slice of realistic schools into safe.
 
-## Frontend Stack
+5. **Tier scoring/ranking**
+   - Scores each school with weighted fit + outcomes tie-breaker.
 
-The frontend is built with:
+6. **Fit signal labeling**
+   - Converts numeric signals to `weak/moderate/strong` buckets via `convertFit`.
 
-- React 19
-- Vite
-- Axios
-- Plain CSS for custom layout and visual styling
+7. **LLM shortlist reranking (RAG-like stage)**
+   - Sends compact candidate representations to `chooseColleges`.
+   - LLM returns selected school IDs by tier.
+   - Backend rehydrates selected IDs with full metadata and dedupes across tiers.
 
-### Frontend Responsibilities
+8. **Robust parsing + fallback**
+   - Handles fenced JSON, loose JSON-like outputs, and partial prose recovery.
+   - Falls back to deterministic shortlist if LLM selection is empty.
 
-The frontend is responsible for:
+---
 
-- the Helix landing page and visual identity
-- the student intake form
-- the loading state while recommendations are being generated
-- the analysis console UI
-- the recommendation cards for schools
-- interactions like smooth scrolling and resetting back to the form
+## LLM Features
 
-The frontend has been styled as a highly visual product experience rather than a standard dashboard. The design language leans into soft gradients, glass-like surfaces, and an “AI assistant” presentation model while still keeping the application approachable for students.
+Implemented in `backend/models/llm.js`:
 
-### Key Frontend Files
+- `analyzeStudentProfile(...)`
+  - Structured admissions feedback JSON.
 
-- [`frontend/src/App.jsx`](/Users/buituananh/Downloads/project-us-college/frontend/src/App.jsx): main page composition and landing page sections
-- [`frontend/src/App.css`](/Users/buituananh/Downloads/project-us-college/frontend/src/App.css): primary styling for the page, components, response window, and interactions
-- [`frontend/components/Form.jsx`](/Users/buituananh/Downloads/project-us-college/frontend/components/Form.jsx): intake form, loading state, and response rendering
+- `getStudentInformation(state)`
+  - Intake field validation/extraction for guided frontend chat.
 
-## Backend Stack
+- `chooseColleges(safe, realistic, dream, student)`
+  - Compact payload ranking with strict JSON output expectations.
+  - Token-optimized prompt for reliability and lower request size.
 
-The backend is built with:
+- `analyzeSchoolInformation(school, student)`
+  - Deep school-level fit analysis.
 
-- Node.js
-- Express
-- Supabase
-- OpenAI-compatible SDK usage against the Groq API
-- custom scoring and embedding logic
-- supporting utilities such as Axios, Cheerio, CSV parsing, and environment variable management
+- `answeringQuestion(question, school, student)`
+  - Follow-up school Q&A in structured JSON.
 
-### Backend Responsibilities
+---
 
-The backend is responsible for:
+## API Endpoints
 
-- receiving profile data from the frontend
-- generating a structured admissions analysis using an LLM
-- filtering colleges based on hard constraints such as budget and score range
-- scoring candidate schools across academic, activity, and preference dimensions
-- querying metadata from Supabase
-- returning a clean JSON payload for frontend rendering
+Mounted under `/colleges`.
 
-### Recommendation Logic
+- `GET /colleges/`
+  - Returns simple colleges table output.
 
-The `/colleges/recommend` route in [`backend/controllers/Colleges.js`](/Users/buituananh/Downloads/project-us-college/backend/controllers/Colleges.js) combines several layers of logic:
+- `GET /colleges/details`
+  - Returns detailed embedding table output.
 
-- Hard filtering:
-  Uses SAT and budget inputs to narrow the initial candidate pool.
+- `POST /colleges/gather` and `POST /colleges/gathering`
+  - Intake validation/field extraction assistant.
 
-- Tiering:
-  Schools are split into `dream`, `realistic`, and `safe` categories.
+- `POST /colleges/recommend`
+  - Main pipeline.
+  - Returns:
+    - `analysis` (LLM profile analysis)
+    - `recommender` with `dream/realistic/safe` school arrays
 
-- Profile-to-school matching:
-  Student academic, activity, and preference signals are compared with school-side data and embeddings.
+- `POST /colleges/recommend/:id`
+  - Returns school-specific analysis JSON.
 
-- Ranking:
-  Schools are scored using a weighted blend of:
-  academic fit, extracurricular/activity similarity, preference similarity, and a modest prestige adjustment.
+- `POST /colleges/recommend/:id/questions`
+  - Returns answer JSON for user follow-up question.
 
-- Metadata hydration:
-  Final results are enriched from the `colleges_metadata` table before being sent to the frontend.
+---
 
-### LLM Analysis Layer
+## Frontend Experience
 
-The analysis layer lives in [`backend/models/llm.js`](/Users/buituananh/Downloads/project-us-college/backend/models/llm.js).
+Main files:
+- `frontend/src/App.jsx`
+- `frontend/components/Form.jsx`
+- `frontend/components/FAQ.jsx`
 
-Helix prompts the model to return strict JSON with fields such as:
+Key behavior:
+- Hero + product sections and animated intake entry point.
+- Guided conversational intake (LLM-validated field flow).
+- Loading stream while backend computes analysis/recommendations.
+- Structured analysis console rendering.
+- Tiered recommendation cards.
+- School interaction panel with:
+  - generated school analysis
+  - continuous follow-up question flow
 
-- `strengths`
-- `weaknesses`
-- `inferred_majors`
-- `competitiveness_insight`
-- `academic_admissions_insight`
-- `overall_feedback`
-- `improvement_suggestions`
+---
 
-This structure is important because it lets the frontend render the output as a readable analysis console rather than as an unstructured block of text.
+## Data/Prep Scripts
 
-### Data Layer
+`backend/scripts/` contains ingestion and preprocessing helpers:
 
-The project uses Supabase as the primary data source for college information and related scoring inputs. The backend connects through [`backend/db.js`](/Users/buituananh/Downloads/project-us-college/backend/db.js).
+- `fetchProgram.js` – fetches CIP program data from College Scorecard API.
+- `reduceProgram.js` – reduces program payload to `cip_programs` titles.
+- `fetchMetadata.js` / `convert.js` – fetches metadata slices.
+- `merge.js` / `mergeFinal.js` – merges IPEDS + Scorecard sources.
+- `fetchDescription.js` – enriches schools with Wikipedia summary/image.
+- `jsontocsv.js` – NDJSON to CSV utility.
+- `embeddingAll.js` – precomputes/updates school scoring + embeddings.
+- `initAnchor.js` – loads anchor embeddings from Supabase (`anchors` table).
 
-Based on the current controller flow, Helix reads from tables such as:
-
-- `colleges_simple`
-- `colleges_embedding`
-- `colleges_metadata`
-
-These tables support both fast filtering and more detailed matching/ranking.
+---
 
 ## Repository Structure
 
 ```text
 project-us-college/
 ├── backend/
-│   ├── controllers/
-│   ├── models/
-│   ├── scripts/
-│   ├── src/
 │   ├── app.js
+│   ├── index.js
 │   ├── db.js
-│   └── index.js
+│   ├── controllers/
+│   │   └── Colleges.js
+│   ├── models/
+│   │   ├── embedding.js
+│   │   └── llm.js
+│   ├── src/scoring/
+│   │   ├── anchors.js
+│   │   ├── academicScore.js
+│   │   ├── activityScore.js
+│   │   └── preferenceScore.js
+│   └── scripts/
 ├── frontend/
-│   ├── components/
-│   ├── public/
 │   ├── src/
-│   └── package.json
+│   │   ├── App.jsx
+│   │   ├── App.css
+│   │   └── main.jsx
+│   ├── components/
+│   │   ├── Form.jsx
+│   │   └── FAQ.jsx
+│   ├── public/assets/
+│   └── vite.config.js
 └── README.md
 ```
 
-## Local Development
+---
+
+## Local Setup
 
 ### Prerequisites
+- Node.js 18+
+- npm
+- Supabase project + keys
+- Hugging Face token
+- Groq API key
 
-You should have:
-
-- Node.js installed
-- npm installed
-- access to the required API keys and Supabase credentials
-
-### Backend Setup
+### Backend
 
 ```bash
 cd backend
 npm install
-```
-
-Create a `.env` file inside `backend/` and provide the environment variables your backend expects, including values for:
-
-- `SUPABASE_URL`
-- `SUPABASE_KEY`
-- `GROKAI_API_KEY`
-
-Then start the backend:
-
-```bash
 npm start
 ```
 
-By default, the backend entry point is [`backend/index.js`](/Users/buituananh/Downloads/project-us-college/backend/index.js), which imports the Express app from [`backend/app.js`](/Users/buituananh/Downloads/project-us-college/backend/app.js).
+Create `backend/.env` with at least:
 
-### Frontend Setup
+```env
+PORT=3001
+SUPABASE_URL=...
+SUPABASE_KEY=...
+HF_TOKEN=...
+GROKAI_API_KEY=...
+SCORECARD_API_KEY=... # for data scripts
+```
+
+### Frontend
 
 ```bash
 cd frontend
@@ -222,88 +248,25 @@ npm install
 npm run dev
 ```
 
-If you are using a frontend environment file, create `frontend/.env` and define the API base URL used by the app so the client knows where to send recommendation requests.
+Frontend calls backend at `http://localhost:3001/` by default.
 
-Then open the local Vite URL in your browser.
+---
 
-### Production Build
+## Notes
 
-Frontend production build:
+- CORS is currently configured for local Vite ports (`5173`, `5174`) and deployed origin (`https://project-us-college.vercel.app`).
+- Recommendation output is intentionally tiered and deduplicated before UI render.
+- LLM JSON handling is hardened to reduce failures from imperfect model formatting.
 
-```bash
-cd frontend
-npm run build
-```
+---
 
-## API Contract
+## Helix Vision
 
-### `POST /colleges/recommend`
+Helix is not just a college list generator. It is an AI admissions partner focused on helping students make better decisions with more confidence.
 
-Expected request body:
+Long-term, the goal is to keep combining:
+- rigorous matching logic
+- interpretable AI reasoning
+- student-first product design
 
-```json
-{
-  "name": "Student Name",
-  "sat": 1450,
-  "gpa": 3.9,
-  "budget": 30000,
-  "awards": "National Merit Scholar, Science Olympiad finalist",
-  "activities": "Debate captain, volunteer tutor, robotics club",
-  "preferences": "Computer science, medium-sized school, collaborative environment"
-}
-```
-
-Example response shape:
-
-```json
-{
-  "analysis": "{...json string returned by the model...}",
-  "recommendation": {
-    "dream": [
-      {
-        "unitid": 1,
-        "name": "Example University",
-        "city": "Example City",
-        "state": "CA",
-        "student_size": 12000,
-        "admission_rate": 0.12,
-        "school_url": "https://example.edu"
-      }
-    ],
-    "realistic": [],
-    "safe": []
-  }
-}
-```
-
-## Current Experience
-
-At the moment, Helix includes:
-
-- a highly customized landing page
-- a student intake form embedded in a stylized device frame
-- a loading experience for analysis generation
-- a glass-like response window for AI analysis
-- grouped school recommendation cards with links to official school websites
-- a comparison section positioning Helix against traditional mentorship models
-
-## Future Directions
-
-There are several natural directions for Helix to grow:
-
-- streaming the analysis output for a more conversational feel
-- deeper personalization based on intended major and narrative theme
-- richer school comparison tools
-- essay and application strategy support
-- saved sessions or student dashboards
-- explainable recommendation reasoning at the individual school level
-
-## Why This Project Matters
-
-Helix is not just a UI experiment or an API wrapper. It is an attempt to rethink how admissions guidance can be delivered in a way that is more equitable, more responsive, and more intelligible for students. The project sits at the intersection of education, product design, recommendation systems, and applied language models.
-
-The broader ambition is to build something that helps students feel less lost in one of the most consequential processes of their academic life.
-
-## Author
-
-Created by Tuan Anh Bui.
+so admissions strategy becomes clearer, faster, and more equitable.

@@ -42,6 +42,45 @@ const parseAnalysis = (analysis) => {
   }
 };
 
+const parseRecommendation = (recommendation) => {
+  let data = recommendation;
+  if (typeof data === 'string') {
+    try {
+      data = JSON.parse(data);
+    } catch {
+      return { dream: [], realistic: [], safe: [] };
+    }
+  }
+
+  if (!data || typeof data !== 'object') {
+    return { dream: [], realistic: [], safe: [] };
+  }
+
+  const asArray = (value) => (Array.isArray(value) ? value : []);
+
+  // Backward/forward compatible with tiered output.
+  if (data.dream || data.realistic || data.safe) {
+    return {
+      dream: asArray(data.dream),
+      realistic: asArray(data.realistic),
+      safe: asArray(data.safe),
+    };
+  }
+
+  if (Array.isArray(data.final_schools)) {
+    const grouped = { dream: [], realistic: [], safe: [] };
+    for (const school of data.final_schools) {
+      const tier = String(school?.tier || '').toLowerCase();
+      if (tier === 'dream' || tier === 'realistic' || tier === 'safe') {
+        grouped[tier].push(school);
+      }
+    }
+    return grouped;
+  }
+
+  return { dream: [], realistic: [], safe: [] };
+};
+
 const formatAcceptanceRate = (rate) => {
   const value = Number(rate);
   if (Number.isNaN(value)) return 'N/A';
@@ -1027,7 +1066,8 @@ function HelixForm() {
     setSubmittedProfile(payload);
     const response = await axios.post(`${baseUrl}`, payload);
     setAnalysis(response.data.analysis);
-    setRecommendation(response.data.recommendation);
+    const normalizedRecommendation = parseRecommendation(response.data.recommender ?? response.data.recommendation);
+    setRecommendation(normalizedRecommendation);
     setLoaded(true);
     
     console.log('Profile submitted:', response.data);

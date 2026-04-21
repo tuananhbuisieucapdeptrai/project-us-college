@@ -14,7 +14,124 @@ const client = new OpenAI({
     baseURL: "https://api.groq.com/openai/v1"
   });
 
-async function analyzeStudentProfile({
+const extractFirstJsonObject = (text) => {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "{") depth += 1;
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+};
+
+const normalizeLooseJson = (text) => {
+  let normalized = text;
+  normalized = normalized.replace(/\[Object\]/g, "null");
+  normalized = normalized.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3');
+  normalized = normalized.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, inner) => `"${inner.replace(/"/g, '\\"')}"`);
+  return normalized;
+};
+
+const parseLooseJsonObject = (text) => {
+  const normalized = normalizeLooseJson(text);
+  return JSON.parse(normalized);
+};
+
+const extractUnitidsByTierFromText = (text) => {
+  const out = { dream: [], realistic: [], safe: [] };
+  if (typeof text !== "string" || text.trim() === "") return out;
+
+  const lines = text.split(/\r?\n/);
+  let currentTier = null;
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    if (lower.includes("dream")) currentTier = "dream";
+    else if (lower.includes("realistic")) currentTier = "realistic";
+    else if (lower.includes("safe")) currentTier = "safe";
+
+    const matches = [...line.matchAll(/unitid\s*[:=]\s*(\d{5,7})/gi)];
+    if (currentTier && matches.length > 0) {
+      for (const match of matches) {
+        out[currentTier].push(Number(match[1]));
+      }
+    }
+  }
+
+  for (const tier of Object.keys(out)) {
+    out[tier] = [...new Set(out[tier])];
+  }
+
+  return out;
+};
+
+const parseJsonResponse = (content) => {
+  if (typeof content !== "string") return content;
+
+  const trimmed = content.trim();
+
+  // Prefer fenced JSON block when present.
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const fencedCandidate = fencedMatch ? fencedMatch[1].trim() : null;
+  if (fencedCandidate) {
+    try {
+      return JSON.parse(fencedCandidate);
+    } catch {
+      const fencedObject = extractFirstJsonObject(fencedCandidate);
+      if (fencedObject) {
+        try {
+          return JSON.parse(fencedObject);
+        } catch {
+          return parseLooseJsonObject(fencedObject);
+        }
+      }
+    }
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const objectCandidate = extractFirstJsonObject(trimmed);
+    if (objectCandidate) {
+      try {
+        return JSON.parse(objectCandidate);
+      } catch {
+        return parseLooseJsonObject(objectCandidate);
+      }
+    }
+    throw new Error("No valid JSON object found in model response");
+  }
+};
+
+  async function analyzeStudentProfile({
     gpa,
     sat,
     awards,
@@ -132,13 +249,15 @@ async function analyzeStudentProfile({
   }
 
 
+
+
 async function analyzeSchoolInformation(school, students){
   const response = await client.chat.completions.create({
     model: "llama-3.1-8b-instant",
     messages: [
       {
-      role: "system",
-      content: `
+        role: "system",
+        content: `
       You are Helix AI, a friendly and knowledgeable US college admissions mentor.
       
       Your personality:
@@ -147,6 +266,30 @@ async function analyzeSchoolInformation(school, students){
       - honest but encouraging
       - speaks directly to the student using "you"
       - sounds like an experienced admissions advisor
+      
+      SYSTEM ALIGNMENT RULE:
+      This school has been selected by Helix's recommendation system using quantitative scoring and embedding-based matching.
+      
+      Each school includes fit_signals that explain why it was selected.
+      
+      You must:
+      - Use fit_signals as a foundation for your analysis
+      - Provide realistic and nuanced evaluation (not blindly positive)
+      - If the school is competitive, frame it as a reach but possible
+      - If there are weaknesses, highlight them constructively
+      - Stay consistent with the idea that this is a reasonable option
+      
+      HOW TO USE FIT SIGNALS:
+      - academic_fit → student's academic competitiveness
+      - activity_fit → alignment of extracurricular profile
+      - preference_fit → lifestyle/environment fit
+      - selectivity_level → overall competitiveness (dream / realistic / safe)
+      
+      Guidance:
+      - If academic_fit is strong → emphasize strengths and differentiation
+      - If academic_fit is moderate → balanced evaluation
+      - If academic_fit is weaker → highlight gaps + strategy clearly
+      - Use signals as guidance, NOT rigid truth
       
       IMPORTANT RULES:
       - Do NOT invent precise rankings unless very well-known
@@ -157,14 +300,18 @@ async function analyzeSchoolInformation(school, students){
       - Focus on academic insight and admission strategy
       `
       },
+      
       {
-      role: "user",
-      content: `
+        role: "user",
+        content: `
       You are given:
+      
       1. A selected US college
       2. A student profile
+      3. Fit signals explaining why this school was selected
       
-      Your job is to provide a personalized analysis explaining how this specific school fits the student academically and strategically.
+      Your job:
+      Provide a personalized, realistic, and strategic analysis of how this school fits the student.
       
       SCHOOL INFORMATION:
       Name: ${school.name}
@@ -175,6 +322,9 @@ async function analyzeSchoolInformation(school, students){
       
       Description:
       ${school.description}
+      
+      FIT SIGNALS:
+      ${JSON.stringify(school.fit_signals, null, 2)}
       
       STUDENT PROFILE:
       Name: ${students.name}
@@ -197,19 +347,21 @@ async function analyzeSchoolInformation(school, students){
       2. Explain what the school is known for academically
       3. Describe the academic environment (large lectures, research focus, etc.)
       4. Highlight programs/majors relevant to the student
-      5. Evaluate student's competitiveness realistically (not overly optimistic)
-      6. Identify strengths that align with this school's academic culture
-      7. Identify gaps that may hurt admission chances
+      5. Evaluate student's competitiveness realistically (guided by academic_fit)
+      6. Identify strengths that align with this school's academic culture (guided by activity_fit)
+      7. Identify gaps that may hurt admission chances (especially if academic_fit is not strong)
       8. Provide academic experience insight (how the student may learn there)
       9. Provide admission strategy advice specific to this school
       10. Provide actionable and non-generic suggestions
       
       IMPORTANT:
-      - Focus on academic insight, not just general description
-      - Explain WHY the school fits or doesn't fit
-      - Avoid generic advice like "contact admissions"
+      
+      - Use fit_signals to SUPPORT your reasoning, not replace it
+      - Explain WHY the school fits or where it may be challenging
       - Be realistic but supportive
+      - Avoid generic advice like "contact admissions"
       - Speak directly to the student ("you")
+      - Keep analysis consistent with the provided signals
       
       Return STRICT JSON:
       
@@ -360,8 +512,8 @@ async function answeringQuestion(question, school, students){
     model: "llama-3.1-8b-instant",
     messages: [
       {
-      role: "system",
-      content: `
+        role: "system",
+        content: `
       You are Helix AI, a friendly and knowledgeable US college admissions advisor.
       
       Your personality:
@@ -372,19 +524,33 @@ async function answeringQuestion(question, school, students){
       
       SYSTEM ALIGNMENT RULE:
       The school provided has already been selected by Helix's recommendation engine 
-      based on the student's profile using quantitative and embedding-based matching.
+      based on the student's profile using quantitative scoring and embedding-based matching.
+      
+      Each school includes fit_signals that explain WHY it was selected.
       
       You must:
       - Treat the school as a relevant and reasonable option for the student
+      - Use fit_signals to guide your reasoning
       - Do NOT contradict the recommendation
       - Do NOT say the school is a bad fit
       - If the school is competitive, frame it as a "reach but possible" opportunity
       - Focus on strategies to improve admission chances rather than rejecting the school
       - Provide constructive and supportive guidance aligned with the recommendation
       
+      HOW TO USE FIT SIGNALS:
+      - academic_fit indicates the student's academic competitiveness
+      - activity_fit reflects alignment with extracurricular profile
+      - preference_fit reflects lifestyle and environment match
+      - selectivity_level indicates competitiveness (dream / realistic / safe)
+      
+      - If academic_fit is weaker → emphasize strategy and improvement
+      - If strong → emphasize positioning and differentiation
+      - Use signals as guidance, NOT rigid rules
+      
       IMPORTANT RULES:
       - Answer the student's question directly
       - Use the provided school and student information
+      - Use fit_signals when relevant to strengthen your reasoning
       - Do NOT hallucinate specific statistics or rankings
       - If unsure, speak generally and cautiously
       - Do NOT recommend other schools
@@ -394,16 +560,19 @@ async function answeringQuestion(question, school, students){
       - Avoid repeating the same advice across responses
       `
       },
+      
       {
-      role: "user",
-      content: `
+        role: "user",
+        content: `
       You are given:
+      
       1. A student question
       2. A specific US college
       3. A student profile
+      4. Fit signals explaining why this school was selected
       
       Your job:
-      Answer the question in a helpful, personalized, and realistic way using both the school and student context.
+      Answer the question in a helpful, personalized, and realistic way using all context.
       
       QUESTION:
       ${question}
@@ -416,6 +585,9 @@ async function answeringQuestion(question, school, students){
       
       Description:
       ${school.description}
+      
+      FIT SIGNALS:
+      ${JSON.stringify(school.fit_signals, null, 2)}
       
       STUDENT PROFILE:
       Name: ${students.name}
@@ -436,10 +608,10 @@ async function answeringQuestion(question, school, students){
       
       1. Answer the student's question directly
       2. Use school-specific context when relevant
-      3. Personalize the answer only when helpful
-      4. Provide insights only if they add new value
-      5. Provide actionable advice only if it is new and useful
-      6. Avoid repeating suggestions already implied
+      3. Use fit_signals to support your reasoning when helpful
+      4. Personalize the answer only when it adds value
+      5. Provide insights only if they are new and meaningful
+      6. Provide actionable advice only if it is useful and not repetitive
       7. Keep tone friendly and conversational
       8. Do NOT recommend other schools
       
@@ -447,6 +619,8 @@ async function answeringQuestion(question, school, students){
       
       - If the question is factual → keep response concise
       - If the question is strategic → include insight and advice
+      - If academic_fit is weaker → include practical improvement strategies
+      - If academic_fit is strong → focus on differentiation and positioning
       - If no new advice is needed → leave optional fields empty
       - Do NOT repeat previously given suggestions
       - Keep responses natural and varied
@@ -478,4 +652,92 @@ async function answeringQuestion(question, school, students){
 
 };
 
-export {client, analyzeStudentProfile, analyzeSchoolInformation, getStudentInformation, answeringQuestion};
+
+
+async function chooseColleges(safe, realistic, dream, student){
+  const compactStudent = {
+    sat: Number(student?.sat),
+    gpa: Number(student?.gpa),
+    budget: Number(student?.budget)
+  };
+
+  const compactSchool = (school) => ({
+    unitid: Number(school?.unitid),
+    admission_rate: Number(school?.admission_rate),
+    fit_signals: {
+      academic_fit: school?.fit_signals?.academic_fit,
+      activity_fit: school?.fit_signals?.activity_fit,
+      preference_fit: school?.fit_signals?.preference_fit,
+      overall_fit: school?.fit_signals?.overall_fit
+    }
+  });
+
+  const compactDream = (Array.isArray(dream) ? dream : []).map(compactSchool);
+  const compactRealistic = (Array.isArray(realistic) ? realistic : []).map(compactSchool);
+  const compactSafe = (Array.isArray(safe) ? safe : []).map(compactSchool);
+
+  const response = await client.chat.completions.create({
+    model: "llama-3.1-8b-instant",
+    max_tokens: 220,
+    messages: [
+      {
+        role: "system",
+        content: `
+      Select colleges only from provided candidates.
+      Prioritize academic_fit, then overall_fit, then activity/preference fit.
+      Prefer realistic/safe balance if dream fit is weak.
+      Output exactly one JSON object, no extra text, no markdown:
+      {"dream":[unitid],"realistic":[unitid],"safe":[unitid]}
+      Rules:
+      - 8 to 12 schools total if possible
+      - no duplicate unitid across tiers
+      - keep tier meaning: dream competitive, realistic plausible, safe likely
+      `
+      },
+      
+      {
+        role: "user",
+        content: `
+      You are given:
+      
+      1. A compact student profile
+      2. Three groups of candidate schools: dream, realistic, safe
+      3. Each school includes fit_signals derived from a scoring system
+      
+      Your task:
+      Select the BEST schools for the student using these signals.
+      
+      Student profile:
+      ${JSON.stringify(compactStudent)}
+      
+      Dream schools:
+      ${JSON.stringify(compactDream)}
+      
+      Realistic schools:
+      ${JSON.stringify(compactRealistic)}
+      
+      Safe schools:
+      ${JSON.stringify(compactSafe)}
+      `
+      }
+      ],
+    temperature: 0.2
+  });
+
+  const content = response.choices[0].message.content;
+  try {
+    return parseJsonResponse(content);
+  } catch (err) {
+    const extracted = extractUnitidsByTierFromText(content);
+    const recoveredCount = extracted.dream.length + extracted.realistic.length + extracted.safe.length;
+    if (recoveredCount > 0) {
+      console.error("Recovered non-JSON chooseColleges response via unitid extraction");
+      return extracted;
+    }
+    console.error("Invalid JSON from chooseColleges:", content);
+    return { dream: [], realistic: [], safe: [] };
+  }
+
+};
+
+export {client, analyzeStudentProfile, analyzeSchoolInformation, getStudentInformation, answeringQuestion, chooseColleges};

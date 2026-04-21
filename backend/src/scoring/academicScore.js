@@ -83,26 +83,164 @@ function getSchoolAcademic(admission_rate, sat_total_50, retention_rate, faculty
 }
 
 
-function academicScore(student, school){
-  let score = 0;
+function clamp(value, min = 0, max = 1) {
+  return Math.min(Math.max(value, min), max);
+}
 
-  if (school.sat_total_50 && student.sat){
-      const diff = student.sat - school.sat_total_50;
+function getSatFit(studentSAT, schoolSAT) {
+  if (!Number.isFinite(studentSAT) || !Number.isFinite(schoolSAT)) return 0.45;
 
-      if (diff > 80) score += 1.0;    
-      else if (diff > -40) score += 0.7;
-      else if (diff > -120) score += 0.4;
-      else score += 0.1;
+  const satDelta = studentSAT - schoolSAT;
+
+  if (satDelta >= 150) return 1.0;
+  if (satDelta >= 80) return 0.92;
+  if (satDelta >= 30) return 0.78;
+  if (satDelta >= -30) return 0.62;
+  if (satDelta >= -80) return 0.38;
+  if (satDelta >= -140) return 0.18;
+  return 0.06;
+}
+
+function getSelectivityPenalty(admissionRate) {
+  const rate = Number(admissionRate);
+
+  if (!Number.isFinite(rate) || rate <= 0) return 0.85;
+  if (rate < 0.05) return 0.45;
+  if (rate < 0.08) return 0.55;
+  if (rate < 0.12) return 0.65;
+  if (rate < 0.20) return 0.78;
+  if (rate < 0.35) return 0.90;
+  return 1.0;
+}
+
+function getAcademicFit(student, school) {
+  const studentSAT = Number(student?.sat);
+  const studentGPA = Number(student?.gpa);
+  const schoolSAT = Number(school?.sat_total_50);
+
+  const satFit = getSatFit(studentSAT, schoolSAT);
+  const gpaFit = Number.isFinite(studentGPA) ? clamp(studentGPA / 4) : 0.55;
+  const selectivityPenalty = getSelectivityPenalty(school?.admission_rate);
+
+  return clamp((0.76 * satFit + 0.24 * gpaFit) * selectivityPenalty);
+}
+
+function getAdmissionTier(student, school) {
+  const studentSAT = Number(student?.sat);
+  const schoolSAT = Number(school?.sat_total_50);
+  const admissionRate = Number(school?.admission_rate);
+  const academicFit = getAcademicFit(student, school);
+  const satDelta = Number.isFinite(studentSAT) && Number.isFinite(schoolSAT)
+    ? studentSAT - schoolSAT
+    : null;
+
+  if (Number.isFinite(admissionRate) && admissionRate < 0.12) {
+    return {
+      tier: "dream",
+      reason: "highly_selective",
+      academicFit,
+      satDelta,
+      admissionRate
+    };
   }
 
-  if (school.admission_rate){
-      score += (1 - school.admission_rate);
+  if (satDelta !== null && satDelta < -80) {
+    return {
+      tier: "dream",
+      reason: "sat_below_median",
+      academicFit,
+      satDelta,
+      admissionRate
+    };
   }
 
-  return score / 2;
+  if (Number.isFinite(admissionRate) && admissionRate < 0.20 && (satDelta === null || satDelta < 80)) {
+    return {
+      tier: "dream",
+      reason: "selective_and_not_above_median",
+      academicFit,
+      satDelta,
+      admissionRate
+    };
+  }
+
+  if (
+    satDelta !== null &&
+    satDelta >= 80 &&
+    Number.isFinite(admissionRate) &&
+    admissionRate >= 0.35
+  ) {
+    return {
+      tier: "safe",
+      reason: "sat_above_median_and_accessible",
+      academicFit,
+      satDelta,
+      admissionRate
+    };
+  }
+
+  // Broader safe rule to reduce empty-safe cases while keeping quality.
+  if (
+    satDelta !== null &&
+    satDelta >= 50 &&
+    Number.isFinite(admissionRate) &&
+    admissionRate >= 0.45
+  ) {
+    return {
+      tier: "safe",
+      reason: "sat_above_median_and_more_accessible",
+      academicFit,
+      satDelta,
+      admissionRate
+    };
+  }
+
+  if (
+    Number.isFinite(admissionRate) &&
+    admissionRate >= 0.6 &&
+    (satDelta === null || satDelta >= 0)
+  ) {
+    return {
+      tier: "safe",
+      reason: "high_admission_rate",
+      academicFit,
+      satDelta,
+      admissionRate
+    };
+  }
+
+  if (
+    satDelta !== null &&
+    satDelta >= 130 &&
+    Number.isFinite(admissionRate) &&
+    admissionRate >= 0.25
+  ) {
+    return {
+      tier: "safe",
+      reason: "sat_well_above_median",
+      academicFit,
+      satDelta,
+      admissionRate
+    };
+  }
+
+  return {
+    tier: "realistic",
+    reason: "academically_plausible",
+    academicFit,
+    satDelta,
+    admissionRate
+  };
 }
 
 
 
 
-export {initAcademicAnchors, getStudentAcademic, getSchoolAcademic}
+export {
+  initAcademicAnchors,
+  getStudentAcademic,
+  getSchoolAcademic,
+  getAcademicFit,
+  getAdmissionTier,
+  getSelectivityPenalty
+}
