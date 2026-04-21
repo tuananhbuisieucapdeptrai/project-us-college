@@ -584,6 +584,7 @@ async function answeringQuestion(question, school, students, conversationContext
       - Use internal signals silently for better reasoning
       - Never expose internal signals or raw numbers
       - Do NOT hallucinate specific statistics or rankings
+      - Do NOT assert numeric averages, percentiles, or ranking claims unless they are explicitly provided in the prompt context
       - If unsure, speak generally and cautiously
       - Do NOT recommend other schools
       - Do NOT output markdown
@@ -596,6 +597,16 @@ async function answeringQuestion(question, school, students, conversationContext
       - Turn 3 and beyond: answer only the student's latest question directly.
       - On turn 3+, do not add unsolicited suggestions, strategy, or extra sections unless explicitly asked.
       - Never repeat school overview content unless the user asks for it.
+
+      CHALLENGE HANDLING RULES (CRITICAL):
+      - If the student challenges your previous statement, acknowledge first and recalibrate.
+      - Never argue with the student or sound defensive.
+      - If the student provides a plausible correction, treat it respectfully and adjust your answer.
+      - Use an "acknowledge -> reframe -> actionable guidance" pattern:
+        1) validate the student's point briefly,
+        2) explain the broader admissions reality without overclaiming,
+        3) give one practical next step (only if useful).
+      - Keep tone supportive, respectful, and collaborative.
       `
       },
       
@@ -657,6 +668,8 @@ async function answeringQuestion(question, school, students, conversationContext
       - Speak directly to the student ("you")
       - Be helpful, concise, and non-repetitive
       - Avoid generic filler
+      - Sound like a calm advisor, not a debater
+      - Prefer wording such as "you're right", "good point", "fair pushback" when correcting course
       - No text outside JSON
       `
       }
