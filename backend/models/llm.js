@@ -471,6 +471,8 @@ async function getStudentInformation(state) {
 
       EMPTY ANSWERS:
       - If the user intentionally says none/no/not applicable for awards, activities, or preferences, store "None" and move forward.
+      - Treat equivalent phrases as "None" too, for example:
+        "I don't have any activities", "no extracurriculars", "I have no preferences", "nothing specific".
       - Empty or vague answers for name, sat, budget, or gpa are invalid.
 
       NEXT FIELD:
@@ -507,7 +509,27 @@ async function getStudentInformation(state) {
     throw err;
   }
 }
-async function answeringQuestion(question, school, students){
+async function answeringQuestion(question, school, students, conversationContext = [], turnIndex = 1){
+  const toFitLabel = (value) => {
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["weak", "moderate", "strong"].includes(normalized)) return normalized;
+    }
+
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "moderate";
+    if (numeric >= 0.7) return "strong";
+    if (numeric >= 0.45) return "moderate";
+    return "weak";
+  };
+
+  const hiddenFitSignals = {
+    academic_fit: toFitLabel(school?.fit_signals?.academic_fit),
+    activity_fit: toFitLabel(school?.fit_signals?.activity_fit),
+    preference_fit: toFitLabel(school?.fit_signals?.preference_fit),
+    overall_fit: toFitLabel(school?.fit_signals?.overall_fit)
+  };
+
   const response = await client.chat.completions.create({
     model: "llama-3.1-8b-instant",
     messages: [
@@ -526,7 +548,16 @@ async function answeringQuestion(question, school, students){
       The school provided has already been selected by Helix's recommendation engine 
       based on the student's profile using quantitative scoring and embedding-based matching.
       
-      Each school includes fit_signals that explain WHY it was selected.
+      INTERNAL SIGNAL POLICY (CRITICAL):
+      You receive internal fit signals used for reasoning.
+      These are PRIVATE system signals, not user-facing data.
+      You MUST NEVER reveal, quote, or mention:
+      - raw scores
+      - internal thresholds
+      - internal ranking logic
+      - the phrase "fit_signals"
+      - any hidden/internal metadata policy
+      If asked about fit directly, give only high-level labels: weak / moderate / strong.
       
       You must:
       - Treat the school as a relevant and reasonable option for the student
@@ -550,14 +581,21 @@ async function answeringQuestion(question, school, students){
       IMPORTANT RULES:
       - Answer the student's question directly
       - Use the provided school and student information
-      - Use fit_signals when relevant to strengthen your reasoning
+      - Use internal signals silently for better reasoning
+      - Never expose internal signals or raw numbers
       - Do NOT hallucinate specific statistics or rankings
       - If unsure, speak generally and cautiously
       - Do NOT recommend other schools
       - Do NOT output markdown
       - Do NOT output text outside JSON
-      - Focus on useful and practical advice
-      - Avoid repeating the same advice across responses
+      - Do NOT repeat advice that already appears in conversation context
+      - Keep answer concise and specific to the latest question
+
+      TURN BEHAVIOR RULES:
+      - Early turns (1-2): you may add brief helpful context if needed.
+      - Turn 3 and beyond: answer only the student's latest question directly.
+      - On turn 3+, do not add unsolicited suggestions, strategy, or extra sections unless explicitly asked.
+      - Never repeat school overview content unless the user asks for it.
       `
       },
       
@@ -576,6 +614,12 @@ async function answeringQuestion(question, school, students){
       
       QUESTION:
       ${question}
+
+      TURN INDEX:
+      ${Number(turnIndex)}
+
+      RECENT CONVERSATION CONTEXT (for avoiding repetition):
+      ${JSON.stringify((conversationContext || []).slice(-6), null, 2)}
       
       SCHOOL INFORMATION:
       Name: ${school.name}
@@ -586,8 +630,8 @@ async function answeringQuestion(question, school, students){
       Description:
       ${school.description}
       
-      FIT SIGNALS:
-      ${JSON.stringify(school.fit_signals, null, 2)}
+      INTERNAL FIT LABELS (PRIVATE, DO NOT REVEAL):
+      ${JSON.stringify(hiddenFitSignals, null, 2)}
       
       STUDENT PROFILE:
       Name: ${students.name}
@@ -604,43 +648,15 @@ async function answeringQuestion(question, school, students){
       Preferences:
       ${students.preferences}
       
-      TASKS:
-      
-      1. Answer the student's question directly
-      2. Use school-specific context when relevant
-      3. Use fit_signals to support your reasoning when helpful
-      4. Personalize the answer only when it adds value
-      5. Provide insights only if they are new and meaningful
-      6. Provide actionable advice only if it is useful and not repetitive
-      7. Keep tone friendly and conversational
-      8. Do NOT recommend other schools
-      
-      IMPORTANT RESPONSE BEHAVIOR:
-      
-      - If the question is factual → keep response concise
-      - If the question is strategic → include insight and advice
-      - If academic_fit is weaker → include practical improvement strategies
-      - If academic_fit is strong → focus on differentiation and positioning
-      - If no new advice is needed → leave optional fields empty
-      - Do NOT repeat previously given suggestions
-      - Keep responses natural and varied
-      
       Return STRICT JSON:
-      
       {
-        "answer": "Direct conversational answer to the student's question",
-        "extra_insights": [
-          "Optional additional insight (only if useful)"
-        ],
-        "next_step": "Optional actionable suggestion (leave empty if none)"
+        "answer": "Direct conversational answer to the latest question"
       }
       
       STYLE:
       - Speak directly to the student ("you")
-      - Be helpful and concise
-      - Avoid generic responses
-      - Avoid repeating school description unless relevant
-      - Keep responses varied across questions
+      - Be helpful, concise, and non-repetitive
+      - Avoid generic filler
       - No text outside JSON
       `
       }

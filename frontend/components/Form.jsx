@@ -94,14 +94,40 @@ const formatSize = (size) => {
 };
 
 const formatQuestionResponse = (data) => {
+  let normalized = data;
+
+  if (typeof normalized === 'string') {
+    const trimmed = normalized.trim();
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    const candidate = fenced ? fenced[1] : trimmed;
+    try {
+      normalized = JSON.parse(candidate);
+    } catch {
+      normalized = { answer: normalized };
+    }
+  }
+
+  if (normalized && typeof normalized.answer === 'string') {
+    const answerTrimmed = normalized.answer.trim();
+    const fencedAnswer = answerTrimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    const answerCandidate = fencedAnswer ? fencedAnswer[1] : answerTrimmed;
+    try {
+      const parsedAnswer = JSON.parse(answerCandidate);
+      if (parsedAnswer && typeof parsedAnswer === 'object') {
+        normalized = {
+          ...normalized,
+          ...parsedAnswer,
+        };
+      }
+    } catch {
+      // Keep original answer string when it is not valid JSON.
+    }
+  }
+
   const sections = [
-    data?.answer,
-    Array.isArray(data?.extra_insights) && data.extra_insights.length > 0
-      ? `Extra insights:\n${data.extra_insights.map((item) => `• ${item}`).join('\n')}`
-      : null,
-    data?.next_step
-      ? `Next step:\n${data.next_step}`
-      : null,
+    normalized?.answer,
+    ...(Array.isArray(normalized?.extra_insights) ? normalized.extra_insights : []),
+    normalized?.next_step,
   ].filter((section) => typeof section === 'string' && section.trim() !== '');
 
   return sections.join('\n\n');
@@ -891,10 +917,18 @@ const HelixInteraction = ({ school, studentProfile, onBack }) => {
     const trimmedQuestion = question.trim();
     if (!trimmedQuestion || asking) return;
 
-    setMessages((current) => [
-      ...current,
-      { role: 'user', type: 'text', text: trimmedQuestion, label: 'Your Question' },
-    ]);
+    const nextUserMessage = { role: 'user', type: 'text', text: trimmedQuestion, label: 'Your Question' };
+    const currentThread = [...messages, nextUserMessage];
+    const turnIndex = currentThread.filter((message) => message.role === 'user' && message.type === 'text').length;
+    const conversationContext = currentThread
+      .filter((message) => message.type === 'text')
+      .slice(-6)
+      .map((message) => ({
+        role: message.role,
+        text: message.text,
+      }));
+
+    setMessages(currentThread);
     setQuestion('');
     setAsking(true);
 
@@ -902,6 +936,8 @@ const HelixInteraction = ({ school, studentProfile, onBack }) => {
       const response = await axios.post(getSchoolQuestionsUrl(school.unitid || school.id), {
         ...studentProfile,
         question: trimmedQuestion,
+        turn_index: turnIndex,
+        conversation_context: conversationContext,
       });
 
       setMessages((current) => [

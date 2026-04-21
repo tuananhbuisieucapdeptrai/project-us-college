@@ -21,10 +21,26 @@ async function initActivityAnchors(){
 
 
 async function getStudentActivity(activities){
+    const text = String(activities ?? "").trim();
+    const normalized = text.toLowerCase();
+    const noSignalPatterns = [
+      /^none$/,
+      /^n\/a$/,
+      /^na$/,
+      /^not applicable$/,
+      /^no activities?$/,
+      /^i\s*(do not|don't)\s*have\s*(any\s*)?activities?$/,
+      /^nothing$/,
+      /^nope$/
+    ];
+    if (!text || noSignalPatterns.some((pattern) => pattern.test(normalized))) {
+      return [0, 0, 0, 0, 0, 0];
+    }
+
     const activityAnchor_embedding = getActivityAnchorsEmbedding();
     const student_raw = await client.featureExtraction({
         model: "BAAI/bge-base-en-v1.5",
-        inputs: activities,
+        inputs: text,
         provider: "hf-inference",
       });
       
@@ -73,6 +89,5 @@ async function getSchoolActivity(programs){
 
 
 export {initActivityAnchors, getStudentActivity, getSchoolActivity};
-
 
 

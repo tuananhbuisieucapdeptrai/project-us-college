@@ -522,7 +522,7 @@ collegeRouter.post('/recommend', async (req, res) => {
 collegeRouter.post('/recommend/:id/questions', async (req,res)=>{
   try{
       const schoolId = req.params.id;
-      const { question, name, sat, gpa, budget, awards, activities, preferences } = req.body;
+      const { question, name, sat, gpa, budget, awards, activities, preferences, conversation_context, turn_index } = req.body;
       const school_raw = await supabase
         .from('colleges_metadata')
         .select('*')
@@ -566,7 +566,7 @@ collegeRouter.post('/recommend/:id/questions', async (req,res)=>{
         preferences
       };
 
-      const answeringPromise = answeringQuestion(question, school_object, student);
+      const answeringPromise = answeringQuestion(question, school_object, student, conversation_context, turn_index);
       const answerQuestion = await answeringPromise;
   
       let parsed;

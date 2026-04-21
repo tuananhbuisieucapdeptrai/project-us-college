@@ -20,10 +20,26 @@ async function initPreferenceAnchors(){
 };
 
 async function getStudentPreference(preferences){
+    const text = String(preferences ?? "").trim();
+    const normalized = text.toLowerCase();
+    const noSignalPatterns = [
+      /^none$/,
+      /^n\/a$/,
+      /^na$/,
+      /^not applicable$/,
+      /^no preferences?$/,
+      /^i\s*(do not|don't)\s*have\s*(any\s*)?preferences?$/,
+      /^nothing$/,
+      /^nope$/
+    ];
+    if (!text || noSignalPatterns.some((pattern) => pattern.test(normalized))) {
+      return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    }
+
     const preferenceAnchors_embedding = getPreferenceAnchorsEmbedding();
     const student_raw = await client.featureExtraction({
         model: "BAAI/bge-base-en-v1.5",
-        inputs: preferences,
+        inputs: text,
         provider: "hf-inference",
       });
     const preferences_embed = extractEmbedding(student_raw);
