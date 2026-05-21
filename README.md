@@ -6,11 +6,7 @@ Helix is an AI-powered US college admissions copilot. It combines quantitative m
 
 Watch the project walkthrough here:
 
-<video src="./docs/demo/helix-project-demo.mov" controls width="100%">
-  Your browser does not support embedded video. Open the demo directly: ./docs/demo/helix-project-demo.mov
-</video>
-
-[Open the Helix project demo](./docs/demo/helix-project-demo.mov)
+[Open the Helix project demo](./docs/demo/helix-project-demo.mp4)
 
 ## Motivation
 
@@ -194,7 +190,7 @@ Key behavior:
 project-us-college/
 ├── docs/
 │   └── demo/
-│       └── helix-project-demo.mov
+│       └── helix-project-demo.mp4
 ├── backend/
 │   ├── app.js
 │   ├── index.js
