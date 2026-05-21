@@ -2,6 +2,16 @@
 
 Helix is an AI-powered US college admissions copilot. It combines quantitative matching, embedding-based similarity, and LLM reasoning to help students understand their profile and discover a realistic, personalized college list.
 
+## Project Demo
+
+Watch the project walkthrough here:
+
+<video src="./docs/demo/helix-project-demo.mov" controls width="100%">
+  Your browser does not support embedded video. Open the demo directly: ./docs/demo/helix-project-demo.mov
+</video>
+
+[Open the Helix project demo](./docs/demo/helix-project-demo.mov)
+
 ## Motivation
 
 US admissions guidance is often expensive, uneven, and hard to access. Helix is built to make high-quality strategy more accessible by giving students:
@@ -182,6 +192,9 @@ Key behavior:
 
 ```text
 project-us-college/
+├── docs/
+│   └── demo/
+│       └── helix-project-demo.mov
 ├── backend/
 │   ├── app.js
 │   ├── index.js
